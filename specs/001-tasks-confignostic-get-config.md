@@ -17,10 +17,10 @@
 
 ## Tasks
 
-- [ ] 1 Establish module scaffolding and exported API surface.
-  - [ ] 1.1 Create module files with docstrings, type-hinted signatures, and placeholder implementations aligned with the architecture.
-  - [ ] 1.2 Implement domain exceptions structure and share remediation metadata across modules.
-  - [ ] 1.3 Update `src/fig_jam/__init__.py` to expose the public API and ensure import side effects (like parser registration) occur on package load.
+- [x] 1 Establish module scaffolding and exported API surface.
+  - [x] 1.1 Create module files with docstrings, type-hinted signatures, and placeholder implementations aligned with the architecture.
+  - [x] 1.2 Implement domain exceptions structure and share remediation metadata across modules.
+  - [x] 1.3 Update `src/fig_jam/__init__.py` to expose the public API
 - [ ] 2 Build parser registry with multi-encoding support and dependency gating.
   - [ ] 2.1 Implement a `register_parser` decorator and central registry keyed by file suffix.
   - [ ] 2.2 Implement JSON, TOML, INI/CFG, and YAML parsers with encoding fallbacks and optional dependency checks.

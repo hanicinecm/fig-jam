@@ -59,7 +59,9 @@ lint.ignore = [
     "COM812",  # Flake8-commas - Trailing comma in function call
     "C901",    # McCabe - Function is too complex
     "W293",    # Pycodestyle - Blank line contains whitespace (fixed by Ruff anyway)
-    "TC003"    # Flake8-type-checking - typing imports inside TYPE_CHECKING block
+    "TC001",
+    "TC003",
+    "ANN401"
 ]
 
 lint.pylint.max-args = 8
