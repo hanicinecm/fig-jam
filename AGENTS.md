@@ -7,8 +7,8 @@
 
 ## Project Layout
 
-- Source code is located in `src/confignostic/`, organized into logical modules or sub-packages.
-- Tests are in `tests/` and mirror the source tree (e.g., `src/confignostic/foo.py` → `tests/test_foo.py`).
+- Source code is located in `src/fig_jam/`, organized into logical modules or sub-packages.
+- Tests are in `tests/` and mirror the source tree (e.g., `src/fig_jam/foo.py` → `tests/test_foo.py`).
 - The project uses `uv` for environment management but must remain installable with `pip`.
 - The Python virtual environment is in the `.venv/` directory and is managed by `uv`.
 
