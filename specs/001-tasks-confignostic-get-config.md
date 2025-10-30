@@ -21,10 +21,10 @@
   - [x] 1.1 Create module files with docstrings, type-hinted signatures, and placeholder implementations aligned with the architecture.
   - [x] 1.2 Implement domain exceptions structure and share remediation metadata across modules.
   - [x] 1.3 Update `src/fig_jam/__init__.py` to expose the public API
-- [ ] 2 Build parser registry with multi-encoding support and dependency gating.
-  - [ ] 2.1 Implement a `register_parser` decorator and central registry keyed by file suffix.
-  - [ ] 2.2 Implement JSON, TOML, INI/CFG, and YAML parsers with encoding fallbacks and optional dependency checks.
-  - [ ] 2.3 Emit structured parser results and dependency guidance for discovery and diagnostics layers.
+- [x] 2 Build parser registry with multi-encoding support and dependency gating.
+  - [x] 2.1 Implement a `register_parser` decorator and central registry keyed by file suffix.
+  - [x] 2.2 Implement JSON, TOML, INI/CFG, and YAML parsers with encoding fallbacks and optional dependency checks.
+  - [x] 2.3 Emit structured parser results and dependency guidance for discovery and diagnostics layers.
 - [ ] 3 Implement discovery pipeline for candidate enumeration and section extraction.
   - [ ] 3.1 Normalize input paths (file, directory, or defaults) and enumerate candidates with registered suffixes.
   - [ ] 3.2 Invoke registered parsers, capturing successful data or error payloads without losing context.
