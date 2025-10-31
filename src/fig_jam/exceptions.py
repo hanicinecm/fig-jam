@@ -1,4 +1,11 @@
-"""Domain-specific exceptions and diagnostics structures for fig_jam."""
+"""Define domain-specific exceptions and diagnostics structures for fig_jam.
+
+This module centralizes diagnostic data classes and the public exceptions used
+throughout the package. It couples to modules that need to report actionable
+errors, namely discovery, parsers, validation, overrides, and loader. Public
+names exported via `fig_jam.__init__` include the configuration error types and
+diagnostic helpers.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +18,13 @@ from typing import Any
 
 @dataclass(frozen=True)
 class DiagnosticDetail:
-    """Represents a diagnostic message describing a pipeline stage outcome."""
+    """Represent a diagnostic message describing a pipeline stage outcome.
+
+    Attributes:
+        stage: Name of the pipeline stage reporting the diagnostic.
+        message: Human-readable description of the condition.
+        data: Optional payload containing structured metadata.
+    """
 
     stage: str
     message: str
@@ -23,7 +36,11 @@ class DiagnosticDetail:
             object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
 
     def as_dict(self) -> dict[str, Any]:
-        """Serialize the diagnostic detail into a dictionary."""
+        """Serialize the diagnostic detail into a dictionary.
+
+        Returns:
+            Dictionary representation suitable for logging or reporting.
+        """
         payload: dict[str, Any] = {"stage": self.stage, "message": self.message}
         if self.data is not None:
             payload["data"] = dict(self.data)
@@ -32,7 +49,13 @@ class DiagnosticDetail:
 
 @dataclass(frozen=True)
 class CandidateDiagnostic:
-    """Aggregated diagnostics associated with a configuration candidate."""
+    """Aggregate diagnostics associated with a configuration candidate.
+
+    Attributes:
+        path: Path to the configuration candidate.
+        diagnostics: Sequence of diagnostic details for the candidate.
+        data_preview: Optional preview of candidate data for reporting.
+    """
 
     path: Path
     diagnostics: Sequence[DiagnosticDetail] = field(default_factory=tuple)
@@ -52,7 +75,11 @@ class CandidateDiagnostic:
             )
 
     def as_dict(self) -> dict[str, Any]:
-        """Serialize candidate diagnostics for structured reporting."""
+        """Serialize candidate diagnostics for structured reporting.
+
+        Returns:
+            Dictionary representation suitable for structured output.
+        """
         payload: dict[str, Any] = {
             "path": str(self.path),
             "diagnostics": [detail.as_dict() for detail in self.diagnostics],
@@ -64,13 +91,22 @@ class CandidateDiagnostic:
 
 @dataclass(frozen=True)
 class RemediationHint:
-    """Actionable remediation guidance accompanying an exception."""
+    """Actionable remediation guidance accompanying an exception.
+
+    Attributes:
+        summary: Short description of the remediation action.
+        command: Optional command string illustrating the remediation.
+    """
 
     summary: str
     command: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """Serialize the remediation hint into a dictionary."""
+        """Serialize the remediation hint into a dictionary.
+
+        Returns:
+            Dictionary representation suitable for structured output.
+        """
         payload: dict[str, Any] = {"summary": self.summary}
         if self.command:
             payload["command"] = self.command
@@ -93,7 +129,14 @@ class FigJamError(Exception):
         remediation: Sequence[RemediationHint] | None = None,
         context: Mapping[str, Any] | None = None,
     ) -> None:
-        """Set up the error with optional diagnostics, remediation, and context."""
+        """Set up the error with optional diagnostics, remediation, and context.
+
+        Args:
+            summary: Human-readable summary of the failure.
+            diagnostics: Optional diagnostics describing contributing details.
+            remediation: Optional remediation hints to guide the user.
+            context: Optional structured context for machine consumption.
+        """
         super().__init__(summary)
         self.summary = summary
         self.diagnostics = tuple(diagnostics or ())
@@ -101,7 +144,11 @@ class FigJamError(Exception):
         self.context = MappingProxyType(dict(context or {}))
 
     def __str__(self) -> str:
-        """Render the exception summary along with remediation hints."""
+        """Render the exception summary along with remediation hints.
+
+        Returns:
+            String representation suitable for display to users.
+        """
         parts = [self.summary]
         if self.remediation:
             parts.append("")
@@ -114,7 +161,11 @@ class FigJamError(Exception):
         return "\n".join(parts)
 
     def as_dict(self) -> dict[str, Any]:
-        """Serialize the exception metadata into a dictionary."""
+        """Serialize the exception metadata into a dictionary.
+
+        Returns:
+            Dictionary capturing summary, context, diagnostics, and remediation.
+        """
         payload: dict[str, Any] = {"summary": self.summary}
         if self.context:
             payload["context"] = dict(self.context)
@@ -140,7 +191,14 @@ class DependencyUnavailableError(FigJamError):
         extras: Iterable[str] | None = None,
         remediation: Sequence[RemediationHint] | None = None,
     ) -> None:
-        """Describe a missing optional dependency and remediation instructions."""
+        """Describe a missing optional dependency and remediation instructions.
+
+        Args:
+            dependency: Name of the missing dependency.
+            reason: Optional explanation of why the dependency is required.
+            extras: Optional extras that can supply the dependency.
+            remediation: Additional remediation hints to append.
+        """
         base_summary = f"Optional dependency '{dependency}' is not available."
         extras_tuple = tuple(extras or ())
 
@@ -190,7 +248,15 @@ class ConfigSourceNotFoundError(FigJamError):
         sample_config: Mapping[str, Any] | None = None,
         remediation: Sequence[RemediationHint] | None = None,
     ) -> None:
-        """Report that no configuration sources were successfully discovered."""
+        """Report that no configuration sources were successfully discovered.
+
+        Args:
+            attempted_candidates: Diagnostics captured for each attempted path.
+            supported_extensions: Iterable of supported file extensions.
+            validator_summary: Optional summary of the validator used.
+            sample_config: Optional sample configuration derived from the validator.
+            remediation: Optional remediation hints to append.
+        """
         summary = "No configuration sources matched the requested criteria."
 
         extensions = tuple(sorted({ext.lower() for ext in supported_extensions}))
@@ -244,7 +310,12 @@ class ConfigSourceAmbiguityError(FigJamError):
         matching_candidates: Sequence[CandidateDiagnostic],
         remediation: Sequence[RemediationHint] | None = None,
     ) -> None:
-        """Report ambiguity when several candidates satisfy the filter."""
+        """Report ambiguity when several candidates satisfy the filter.
+
+        Args:
+            matching_candidates: Diagnostics for all matching candidates.
+            remediation: Optional remediation hints to append.
+        """
         summary = "Multiple configuration sources matched the requested criteria."
 
         context = {
@@ -290,7 +361,13 @@ class ConfigValidationError(FigJamError):
         validator_summary: str | None = None,
         remediation: Sequence[RemediationHint] | None = None,
     ) -> None:
-        """Report validation errors for one or more configuration candidates."""
+        """Report validation errors for one or more configuration candidates.
+
+        Args:
+            failing_candidates: Diagnostics for candidates that failed validation.
+            validator_summary: Optional summary of the validator used.
+            remediation: Optional remediation hints to append.
+        """
         summary = "Configuration validation failed for the discovered sources."
 
         context: dict[str, Any] = {

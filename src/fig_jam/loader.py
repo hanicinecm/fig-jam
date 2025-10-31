@@ -1,4 +1,11 @@
-"""Top-level configuration loader orchestration for fig_jam."""
+"""Compose the end-to-end configuration loading workflow.
+
+This module orchestrates discovery, override merging, validation, caching, and
+error shaping. Its public API `get_config` represents the package's primary
+entry point. The module couples to `fig_jam.discovery`, `fig_jam.overrides`,
+`fig_jam.validation`, `fig_jam.cache`, `fig_jam.exceptions`, and
+`fig_jam.parsers` to connect the pipeline stages.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +45,27 @@ def get_config(
     *,
     enable_overrides: bool = False,
 ) -> Any:
-    """Load configuration data according to the provided parameters."""
+    """Load configuration data according to the provided parameters.
+
+    Args:
+        path: Explicit configuration file or directory to probe. Defaults to
+            the user's home directory when omitted.
+        section: Optional section key to extract from candidate mappings.
+        validator: Optional schema or callable used to validate the resulting
+            configuration.
+        enable_overrides: When ``True`` merges FIG_JAM environment overrides
+            prior to validation.
+
+    Returns:
+        Validated configuration object whose structure depends on the supplied
+        validator.
+
+    Raises:
+        ConfigSourceNotFoundError: When no viable configuration is discovered.
+        ConfigSourceAmbiguityError: When multiple candidates pass validation.
+        ConfigValidationError: When candidates are discovered but fail
+            validation.
+    """
     canonical_path = _canonicalize_path(path)
     environment = os.environ
     override_signature = (
@@ -77,7 +104,25 @@ def _load_config_internal(
     override_signature: tuple[tuple[str, str], ...],
     environment: Mapping[str, str],
 ) -> Any:
-    """Run the configuration pipeline stages in order."""
+    """Run the configuration pipeline stages in order.
+
+    Args:
+        canonical_path: Canonical path derived from user input.
+        section: Optional section key for extraction.
+        validator: Optional validator supplied by the caller.
+        enable_overrides: Flag indicating whether overrides were requested.
+        override_signature: Deterministic signature of applied overrides. Used
+            for cache key computation.
+        environment: Environment mapping from which overrides are derived.
+
+    Returns:
+        Validated configuration payload produced by downstream stages.
+
+    Raises:
+        ConfigSourceNotFoundError: When no viable configuration is discovered.
+        ConfigSourceAmbiguityError: When multiple candidates pass validation.
+        ConfigValidationError: When candidates fail validation.
+    """
     _ = override_signature
 
     discovery_result = discover_candidates(canonical_path, section)
@@ -115,7 +160,16 @@ def _load_config_internal(
 
 
 def _canonicalize_path(path: Path | None) -> Path:
-    """Resolve a user-supplied path to a canonical absolute path."""
+    """Resolve a user-supplied path to a canonical absolute path.
+
+    Args:
+        path: Candidate path supplied by the caller or ``None`` to default to
+            the user's home directory.
+
+    Returns:
+        Canonical path expanded for user directories and resolved when
+        possible.
+    """
     base = path if path is not None else Path.home()
     expanded = base.expanduser()
     try:
@@ -130,7 +184,16 @@ def _apply_overrides(
     section: str | None,
     environment: Mapping[str, str],
 ) -> DiscoveryResult:
-    """Apply environment overrides to discovery candidates when enabled."""
+    """Apply environment overrides to discovery candidates when enabled.
+
+    Args:
+        discovery_result: Discovery results prior to override application.
+        section: Optional section key restricting overrides.
+        environment: Mapping of environment variables to inspect.
+
+    Returns:
+        Updated discovery result reflecting merged overrides and diagnostics.
+    """
     updated_candidates: list[DiscoveryCandidate] = []
     for candidate in discovery_result.candidates:
         if candidate.data is None:
@@ -160,7 +223,21 @@ def _finalize_result(
     *,
     validator: Any | None,
 ) -> Any:
-    """Derive the final return value or raise a descriptive exception."""
+    """Derive the final return value or raise a descriptive exception.
+
+    Args:
+        validation_result: Validation outcomes for all candidates.
+        validator: Validator provided by the caller.
+
+    Returns:
+        Final configuration object when exactly one candidate succeeds.
+
+    Raises:
+        ConfigSourceAmbiguityError: When more than one candidate succeeds.
+        ConfigValidationError: When candidates fail validation.
+        ConfigSourceNotFoundError: When no candidates pass discovery or
+            validation.
+    """
     successful = [c for c in validation_result.candidates if c.data is not None]
 
     if len(successful) == 1:
@@ -196,7 +273,14 @@ def _finalize_result(
 
 
 def _build_candidate_diagnostic(candidate: ValidationCandidate) -> CandidateDiagnostic:
-    """Convert a validation candidate into a diagnostic record."""
+    """Convert a validation candidate into a diagnostic record.
+
+    Args:
+        candidate: Validation candidate to summarize.
+
+    Returns:
+        Candidate diagnostic containing path, diagnostics, and data preview.
+    """
     data_preview: Mapping[str, Any] | None = None
     if isinstance(candidate.data, Mapping):
         data_preview = dict(candidate.data)
@@ -209,7 +293,15 @@ def _build_candidate_diagnostic(candidate: ValidationCandidate) -> CandidateDiag
 
 
 def _describe_validator(validator: Any | None) -> str | None:
-    """Provide a human-readable description of the validator."""
+    """Provide a human-readable description of the validator.
+
+    Args:
+        validator: Validator descriptor supplied by the caller.
+
+    Returns:
+        Human-readable summary string or ``None`` when no validator was
+        provided.
+    """
     if validator is None:
         return None
 
@@ -234,7 +326,15 @@ def _describe_validator(validator: Any | None) -> str | None:
 
 
 def _build_sample_config(validator: Any | None) -> Mapping[str, Any] | None:
-    """Generate a sample configuration structure based on the validator."""
+    """Generate a sample configuration structure based on the validator.
+
+    Args:
+        validator: Validator descriptor to project onto a sample config.
+
+    Returns:
+        Example configuration mapping aligned with the validator, or ``None``
+        when a sample cannot be inferred.
+    """
     if validator is None:
         return None
 
@@ -262,7 +362,14 @@ def _build_sample_config(validator: Any | None) -> Mapping[str, Any] | None:
 
 
 def _render_placeholder(target: Any) -> str:
-    """Render a placeholder string for a type annotation."""
+    """Render a placeholder string for a type annotation.
+
+    Args:
+        target: Target type or annotation representation.
+
+    Returns:
+        Placeholder string describing the expected value.
+    """
     if isinstance(target, type):
         return f"<{target.__name__}>"
     return f"<{target}>"

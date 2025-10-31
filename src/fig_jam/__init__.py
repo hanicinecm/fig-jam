@@ -1,4 +1,9 @@
-"""fig_jam public API surface."""
+"""Expose the public entry points for the fig_jam package.
+
+This module forms the outward-facing contract of the library. It re-exports
+the loader entry point, cache invalidation helper, and user-visible exception
+types defined in sibling modules.
+"""
 
 from __future__ import annotations
 

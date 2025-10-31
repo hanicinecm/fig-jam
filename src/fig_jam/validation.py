@@ -1,4 +1,11 @@
-"""Validation pipeline for fig_jam configuration data."""
+"""Validate configuration candidates produced by discovery and overrides.
+
+This module dispatches across supported validator styles (lists, dictionaries,
+dataclasses, and Pydantic models) and converts results into structured
+diagnostics. It is consumed exclusively by `fig_jam.loader`, and couples to
+`fig_jam.discovery` for discovery outputs and `fig_jam.exceptions` for
+diagnostic records.
+"""
 
 from __future__ import annotations
 
@@ -23,7 +30,13 @@ _SEQUENCE_EXCLUSIONS = (str, bytes, bytearray)
 
 @dataclass(frozen=True)
 class ValidationCandidate:
-    """Represents a candidate configuration after validation."""
+    """Represent a candidate configuration after validation.
+
+    Attributes:
+        source_path: Original source path for the candidate.
+        data: Validated configuration payload when available.
+        diagnostics: Diagnostics collected during discovery and validation.
+    """
 
     source_path: str
     data: Any | None
@@ -41,7 +54,11 @@ class ValidationCandidate:
 
 @dataclass(frozen=True)
 class ValidationResult:
-    """Aggregated validation outcome for downstream consumption by the loader."""
+    """Aggregate validation outcome for downstream consumption by the loader.
+
+    Attributes:
+        candidates: Ordered collection of validation candidates.
+    """
 
     candidates: Sequence[ValidationCandidate]
 
@@ -54,7 +71,17 @@ def validate_candidates(
     discovery_result: DiscoveryResult,
     validator: Any,
 ) -> ValidationResult:
-    """Validate discovery results using the supplied validator."""
+    """Validate discovery results using the supplied validator.
+
+    Args:
+        discovery_result: Output from the discovery stage containing parsed
+            candidates and diagnostics.
+        validator: Validator descriptor supplied to `get_config`.
+
+    Returns:
+        Validation results containing updated candidates with validation
+        diagnostics.
+    """
     candidates: list[ValidationCandidate] = []
     for candidate in discovery_result.candidates:
         diagnostics = list(candidate.diagnostics)
@@ -105,7 +132,18 @@ def _run_validation(
     data: Mapping[str, Any],
     validator: Any,
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
-    """Run the validator against the provided mapping."""
+    """Run the validator against the provided mapping.
+
+    Args:
+        data: Mapping produced by the discovery stage.
+        validator: Validator descriptor provided by the caller.
+
+    Returns:
+        Pair containing the validated payload and additional diagnostics.
+
+    Raises:
+        TypeError: If the validator type is unsupported.
+    """
     if validator is None:
         detail = DiagnosticDetail(
             stage="validation.none",
@@ -130,7 +168,14 @@ def _run_validation(
 
 
 def _is_string_sequence_validator(validator: Any) -> bool:
-    """Determine whether the validator is a sequence of strings."""
+    """Determine whether the validator is a sequence of strings.
+
+    Args:
+        validator: Validator descriptor under inspection.
+
+    Returns:
+        Boolean indicating whether the validator is a string sequence.
+    """
     if isinstance(validator, _SEQUENCE_EXCLUSIONS):
         return False
     if isinstance(validator, Sequence):
@@ -141,7 +186,18 @@ def _is_string_sequence_validator(validator: Any) -> bool:
 def _validate_key_list(
     data: Mapping[str, Any], validator: Sequence[str]
 ) -> tuple[Mapping[str, Any], tuple[DiagnosticDetail, ...]]:
-    """Validate configuration using a list of keys."""
+    """Validate configuration using a list of keys.
+
+    Args:
+        data: Mapping produced by discovery.
+        validator: Sequence of keys that must be present.
+
+    Returns:
+        Pair containing the filtered mapping and validation diagnostics.
+
+    Raises:
+        _ValidationFailureError: If required keys are missing.
+    """
     missing = [key for key in validator if key not in data]
     if missing:
         detail = DiagnosticDetail(
@@ -163,7 +219,19 @@ def _validate_key_list(
 def _validate_typed_mapping(
     data: Mapping[str, Any], validator: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any], tuple[DiagnosticDetail, ...]]:
-    """Validate configuration with a mapping of keys to types."""
+    """Validate configuration with a mapping of keys to types.
+
+    Args:
+        data: Mapping produced by discovery.
+        validator: Mapping describing required keys and expected types.
+
+    Returns:
+        Pair containing the coerced mapping and validation diagnostics.
+
+    Raises:
+        TypeError: If the validator mapping contains unsupported entries.
+        _ValidationFailureError: If keys are missing or coercion fails.
+    """
     for key, target in validator.items():
         if not isinstance(key, str):
             message = "Validator mapping keys must be strings."
@@ -211,7 +279,19 @@ def _validate_typed_mapping(
 
 
 def _coerce_value(value: Any, target_type: type) -> Any:
-    """Coerce a value to the target type with helpful error messaging."""
+    """Coerce a value to the target type with helpful error messaging.
+
+    Args:
+        value: Value to coerce.
+        target_type: Target type expected by the validator.
+
+    Returns:
+        Value converted to the requested type.
+
+    Raises:
+        TypeError: If boolean or path coercion fails.
+        ValueError: If built-in conversion raises `ValueError`.
+    """
     if isinstance(value, target_type):
         return value
 
@@ -231,7 +311,17 @@ def _coerce_value(value: Any, target_type: type) -> Any:
 
 
 def _coerce_bool_value(value: Any) -> bool:
-    """Coerce a value into a boolean using human-friendly rules."""
+    """Coerce a value into a boolean using human-friendly rules.
+
+    Args:
+        value: Value to translate into a boolean.
+
+    Returns:
+        Boolean representation of the supplied value.
+
+    Raises:
+        TypeError: If the value cannot be interpreted as a boolean.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -249,14 +339,33 @@ def _coerce_bool_value(value: Any) -> bool:
 
 
 def _is_dataclass_validator(validator: Any) -> bool:
-    """Determine whether the validator is a dataclass type."""
+    """Determine whether the validator is a dataclass type.
+
+    Args:
+        validator: Validator descriptor under inspection.
+
+    Returns:
+        Boolean indicating whether the validator is a dataclass.
+    """
     return isinstance(validator, type) and is_dataclass(validator)
 
 
 def _validate_dataclass(
     data: Mapping[str, Any], validator: type
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
-    """Validate configuration using a dataclass validator."""
+    """Validate configuration using a dataclass validator.
+
+    Args:
+        data: Mapping produced by discovery.
+        validator: Dataclass type describing expected configuration fields.
+
+    Returns:
+        Pair containing the dataclass instance and associated diagnostics.
+
+    Raises:
+        _ValidationFailureError: If required fields are missing or coercion
+        fails.
+    """
     payload: dict[str, Any] = {}
     errors: list[str] = []
 
@@ -313,7 +422,20 @@ def _validate_dataclass(
 
 
 def _coerce_for_annotation(value: Any, annotation: Any) -> Any:
-    """Coerce a value according to a type annotation."""
+    """Coerce a value according to a type annotation.
+
+    Args:
+        value: Value to coerce.
+        annotation: Annotation describing the expected type or union.
+
+    Returns:
+        Value coerced according to the annotation rules.
+
+    Raises:
+        TypeError: If the value cannot satisfy any branch of an optional
+        annotation.
+        ValueError: If coercion fails for simple types.
+    """
     origin = get_origin(annotation)
     if origin is None:
         if annotation in {Any, object} or annotation is None:
@@ -340,7 +462,14 @@ def _coerce_for_annotation(value: Any, annotation: Any) -> Any:
 
 
 def _describe_annotation(annotation: Any) -> str:
-    """Return a human-readable description of a type annotation."""
+    """Return a human-readable description of a type annotation.
+
+    Args:
+        annotation: Annotation to describe.
+
+    Returns:
+        Human-readable string describing the annotation.
+    """
     origin = get_origin(annotation)
     if origin is None:
         return getattr(annotation, "__name__", str(annotation))
@@ -353,7 +482,14 @@ def _describe_annotation(annotation: Any) -> str:
 
 
 def _is_pydantic_validator(validator: Any) -> bool:
-    """Determine whether the validator is a Pydantic model."""
+    """Determine whether the validator is a Pydantic model.
+
+    Args:
+        validator: Validator descriptor under inspection.
+
+    Returns:
+        Boolean indicating whether the validator is a Pydantic model.
+    """
     if _PydanticBaseModel is None or not isinstance(validator, type):
         return False
     return issubclass(validator, _PydanticBaseModel)
@@ -362,7 +498,19 @@ def _is_pydantic_validator(validator: Any) -> bool:
 def _validate_pydantic(
     data: Mapping[str, Any], validator: type
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
-    """Validate configuration using a Pydantic model."""
+    """Validate configuration using a Pydantic model.
+
+    Args:
+        data: Mapping produced by discovery.
+        validator: Pydantic model type supplied by the caller.
+
+    Returns:
+        Pair containing the Pydantic model instance and diagnostics.
+
+    Raises:
+        RuntimeError: If Pydantic is unavailable at runtime.
+        _ValidationFailureError: When validation fails inside Pydantic.
+    """
     if (
         _PydanticBaseModel is None or _PydanticValidationError is None
     ):  # pragma: no cover - optional dependency guard

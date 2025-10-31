@@ -1,4 +1,11 @@
-"""Configuration discovery stage for fig_jam."""
+"""Discover configuration candidates prior to validation.
+
+This module walks file system locations, invokes parsers registered in
+`fig_jam.parsers`, and extracts optional sections before validation. It is
+consumed exclusively by `fig_jam.loader` and therefore couples to the parser
+registry and diagnostic structures from `fig_jam.exceptions`. Public exports
+include the `discover_candidates` function and its supporting data classes.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +21,13 @@ from fig_jam.parsers import get_registered_parser, iter_registered_suffixes
 
 @dataclass(frozen=True)
 class DiscoveryCandidate:
-    """Represents a single candidate configuration file."""
+    """Represents a single configuration file candidate.
+
+    Attributes:
+        path: Resolved path to the candidate.
+        data: Parsed configuration mapping or section content when available.
+        diagnostics: Sequence of diagnostics captured during discovery.
+    """
 
     path: Path
     data: Mapping[str, Any] | None
@@ -29,7 +42,11 @@ class DiscoveryCandidate:
 
 @dataclass(frozen=True)
 class DiscoveryResult:
-    """Aggregated discovery outcome containing all probed candidates."""
+    """Aggregated discovery outcome containing all probed candidates.
+
+    Attributes:
+        candidates: Ordered collection of candidate discovery results.
+    """
 
     candidates: Sequence[DiscoveryCandidate]
 
@@ -39,7 +56,16 @@ class DiscoveryResult:
 
 
 def discover_candidates(path: Path | None, section: str | None) -> DiscoveryResult:
-    """Enumerate and parse configuration candidates for downstream validation."""
+    """Enumerate and parse configuration candidates for downstream validation.
+
+    Args:
+        path: Optional user-provided path to a configuration file or directory.
+            When ``None`` the user's home directory is used.
+        section: Optional section key to extract from successful candidates.
+
+    Returns:
+        Immutable record of all attempted candidates and their diagnostics.
+    """
     normalized_path = _normalize_input_path(path)
     if not normalized_path.exists():
         detail = DiagnosticDetail(
@@ -74,7 +100,15 @@ def discover_candidates(path: Path | None, section: str | None) -> DiscoveryResu
 
 
 def _normalize_input_path(path: Path | None) -> Path:
-    """Normalise user supplied path parameters."""
+    """Normalise user supplied path parameters.
+
+    Args:
+        path: Candidate path provided by the caller or ``None`` to default to
+            the user's home directory.
+
+    Returns:
+        Canonical path suitable for file system enumeration.
+    """
     base = path if path is not None else Path.home()
     expanded = base.expanduser()
     try:
@@ -87,7 +121,16 @@ def _evaluate_directory(
     directory: Path,
     section: str | None,
 ) -> tuple[DiscoveryCandidate, ...]:
-    """Evaluate all registered candidates within the provided directory."""
+    """Evaluate all registered candidates within the provided directory.
+
+    Args:
+        directory: Directory to probe for configuration files.
+        section: Optional section key to extract from parsed results.
+
+    Returns:
+        Sequence of discovery candidates representing each probed file or a
+        synthetic candidate when no supported files exist.
+    """
     suffixes = {suffix.lower() for suffix in iter_registered_suffixes()}
     candidates: list[DiscoveryCandidate] = []
     for candidate_path in sorted(directory.iterdir()):
@@ -113,7 +156,16 @@ def _evaluate_directory(
 
 
 def _evaluate_candidate(path: Path, section: str | None) -> DiscoveryCandidate:
-    """Parse and optionally extract a section from a candidate file."""
+    """Parse and optionally extract a section from a candidate file.
+
+    Args:
+        path: Path to the configuration file under evaluation.
+        section: Optional section key to extract from the parsed mapping.
+
+    Returns:
+        Discovery result populated with parser diagnostics and extracted data
+        when successful.
+    """
     parser = get_registered_parser(path.suffix)
     if parser is None:
         detail = DiagnosticDetail(
@@ -146,7 +198,17 @@ def _evaluate_candidate(path: Path, section: str | None) -> DiscoveryCandidate:
 def _extract_section(
     mapping: Mapping[str, Any], section: str, path: Path
 ) -> _SectionExtraction:
-    """Extract a section from the mapping while preserving immutability."""
+    """Extract a section from the mapping while preserving immutability.
+
+    Args:
+        mapping: Parsed configuration mapping.
+        section: Section key to extract.
+        path: Path to the current configuration file for diagnostic context.
+
+    Returns:
+        Structured result containing the extracted mapping and associated
+        diagnostic detail.
+    """
     if section not in mapping:
         detail = DiagnosticDetail(
             stage="discovery.section",
@@ -175,7 +237,12 @@ def _extract_section(
 
 @dataclass(frozen=True)
 class _SectionExtraction:
-    """Represents the outcome of extracting a section."""
+    """Represents the outcome of extracting a section.
+
+    Attributes:
+        data: Extracted mapping when available.
+        diagnostic: Diagnostic detail describing the extraction attempt.
+    """
 
     data: Mapping[str, Any] | None
     diagnostic: DiagnosticDetail

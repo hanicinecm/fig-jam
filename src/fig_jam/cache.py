@@ -1,4 +1,13 @@
-"""Cache management for fig_jam configuration loads."""
+"""Provide memoization utilities for configuration loading.
+
+This module owns the caching layer that backs `fig_jam.loader`. It exposes the
+`cached_loader` decorator and `clear_cache` helper, both coupled directly to
+the loader orchestration. Internally it normalizes loader parameters, manages
+thread-safe storage, and returns defensive copies to avoid leaking mutable
+state. The module depends only on standard library utilities and does not
+reach into other fig_jam internals beyond accepting callables supplied by the
+loader.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +25,17 @@ _SEQUENCE_EXCLUSIONS = (str, bytes, bytearray)
 
 
 def cached_loader(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a loader callable with caching behaviour."""
+    """Wrap a loader callable with caching behaviour.
+
+    Args:
+        func: Callable implementing the uncached loader workflow. The callable
+            must accept keyword arguments that include the canonical path,
+            section, validator, override toggle, and override signature.
+
+    Returns:
+        Memoizing wrapper that delegates to the provided callable on cache
+        misses.
+    """
     signature = inspect.signature(func)
     cache: dict[Any, Any] = {}
     lock = threading.RLock()
@@ -60,7 +79,12 @@ def cached_loader(func: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def clear_cache() -> None:
-    """Clear cached configuration results."""
+    """Evict all memoized configuration results.
+
+    This helper iterates the registered cache clearers created by individual
+    `cached_loader` applications. It is coupled to the loader module, which
+    registers exactly one decorated function.
+    """
     for clear in _CACHE_CLEARERS:
         clear()
 
@@ -73,7 +97,21 @@ def _make_cache_key(
     enable_overrides: bool,
     override_signature: Any,
 ) -> tuple[Any, ...] | None:
-    """Construct a cache key or return ``None`` if caching should be bypassed."""
+    """Construct a cache key or return ``None`` when caching should be skipped.
+
+    Args:
+        path: Canonical path value provided by the loader.
+        section: Section name requested by the caller, if any.
+        validator: Validator descriptor supplied to `get_config`.
+        enable_overrides: Flag indicating whether environment overrides were
+            applied.
+        override_signature: Tuple capturing the environment overrides that were
+            applied to the candidate data.
+
+    Returns:
+        Hashable cache key when memoization is allowed, otherwise ``None`` to
+        indicate the call should bypass caching.
+    """
     path_key = _normalize_path_key(path)
     validator_key = _normalize_validator_key(validator)
     if validator_key is None:
@@ -83,7 +121,14 @@ def _make_cache_key(
 
 
 def _normalize_path_key(path: Any) -> str:
-    """Normalise a path argument into a canonical string."""
+    """Normalise a path argument into a canonical string.
+
+    Args:
+        path: Path-like object provided by the loader.
+
+    Returns:
+        Canonical string representation of the path.
+    """
     if isinstance(path, Path):
         return str(path)
     if isinstance(path, str):
@@ -92,7 +137,15 @@ def _normalize_path_key(path: Any) -> str:
 
 
 def _normalize_validator_key(validator: Any) -> tuple[Any, ...] | None:
-    """Derive a hashable identity for the supplied validator."""
+    """Derive a hashable identity for the supplied validator.
+
+    Args:
+        validator: Validator descriptor passed to `get_config`.
+
+    Returns:
+        Normalised validator identity, or ``None`` when the validator cannot be
+        represented safely for caching.
+    """
     result: tuple[Any, ...] | None = None
 
     if validator is None:
@@ -118,7 +171,15 @@ def _normalize_validator_key(validator: Any) -> tuple[Any, ...] | None:
 
 
 def _clone_result(value: Any) -> Any:
-    """Return a safe copy of a cached value."""
+    """Return a safe copy of a cached value.
+
+    Args:
+        value: Cached payload retrieved from the memoization store.
+
+    Returns:
+        Defensive copy that protects the cached snapshot from external
+        mutation.
+    """
     if isinstance(value, MappingProxyType):
         return value
     if isinstance(value, Mapping):
