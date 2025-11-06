@@ -3,7 +3,7 @@
 The overrides layer decodes FIG_JAM-prefixed environment variables, merges
 them into discovery results, and surfaces diagnostics describing successes or
 failures. This module couples directly to `fig_jam.loader` and
-`fig_jam.exceptions` while remaining agnostic to validators or caching.
+`fig_jam.exceptions` while remaining agnostic to validators.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def apply_overrides(
 
     Returns:
         Structured outcome including the merged mapping, diagnostics, success
-        flag, and override signature.
+        flag, and deterministic override signature.
     """
     env_mapping = environment or os.environ
     instructions = tuple(_iter_instructions(env_mapping, section=section))
@@ -162,7 +162,7 @@ def compute_override_signature(
 
     Returns:
         Deterministic collection of overrides used to influence the
-        configuration, ordered for cache key construction.
+        configuration, ordered for reporting and diagnostics.
     """
     env_mapping = environment or os.environ
     instructions = _iter_instructions(env_mapping, section=section)

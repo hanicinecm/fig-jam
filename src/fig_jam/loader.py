@@ -1,10 +1,10 @@
 """Compose the end-to-end configuration loading workflow.
 
-This module orchestrates discovery, override merging, validation, caching, and
-error shaping. Its public API `get_config` represents the package's primary
-entry point. The module couples to `fig_jam.discovery`, `fig_jam.overrides`,
-`fig_jam.validation`, `fig_jam.cache`, `fig_jam.exceptions`, and
-`fig_jam.parsers` to connect the pipeline stages.
+This module orchestrates discovery, override merging, validation, and error
+shaping. Its public API `get_config` represents the package's primary entry
+point. The module couples to `fig_jam.discovery`, `fig_jam.overrides`,
+`fig_jam.validation`, `fig_jam.exceptions`, and `fig_jam.parsers` to connect
+the pipeline stages.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from fig_jam.cache import cached_loader
 from fig_jam.discovery import DiscoveryCandidate, DiscoveryResult, discover_candidates
 from fig_jam.exceptions import (
     CandidateDiagnostic,
@@ -24,10 +23,7 @@ from fig_jam.exceptions import (
     ConfigSourceNotFoundError,
     ConfigValidationError,
 )
-from fig_jam.overrides import (
-    apply_overrides,
-    compute_override_signature,
-)
+from fig_jam.overrides import apply_overrides
 from fig_jam.parsers import iter_registered_suffixes
 from fig_jam.validation import (
     ValidationCandidate,
@@ -68,12 +64,6 @@ def get_config(
     """
     canonical_path = _canonicalize_path(path)
     environment = os.environ
-    override_signature = (
-        compute_override_signature(section, environment=environment)
-        if enable_overrides
-        else ()
-    )
-
     logger.debug(
         "Loading configuration",
         extra={
@@ -89,19 +79,16 @@ def get_config(
         section=section,
         validator=validator,
         enable_overrides=enable_overrides,
-        override_signature=override_signature,
         environment=environment,
     )
 
 
-@cached_loader
 def _load_config_internal(
     *,
     canonical_path: Path,
     section: str | None,
     validator: Any | None,
     enable_overrides: bool,
-    override_signature: tuple[tuple[str, str], ...],
     environment: Mapping[str, str],
 ) -> Any:
     """Run the configuration pipeline stages in order.
@@ -111,8 +98,6 @@ def _load_config_internal(
         section: Optional section key for extraction.
         validator: Optional validator supplied by the caller.
         enable_overrides: Flag indicating whether overrides were requested.
-        override_signature: Deterministic signature of applied overrides. Used
-            for cache key computation.
         environment: Environment mapping from which overrides are derived.
 
     Returns:
@@ -123,8 +108,6 @@ def _load_config_internal(
         ConfigSourceAmbiguityError: When multiple candidates pass validation.
         ConfigValidationError: When candidates fail validation.
     """
-    _ = override_signature
-
     discovery_result = discover_candidates(canonical_path, section)
     logger.debug(
         "Discovery completed",

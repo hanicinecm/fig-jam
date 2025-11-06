@@ -6,21 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from fig_jam.cache import clear_cache
 from fig_jam.exceptions import (
     ConfigSourceAmbiguityError,
     ConfigSourceNotFoundError,
     ConfigValidationError,
 )
 from fig_jam.loader import get_config
-
-
-@pytest.fixture(autouse=True)
-def _reset_cache() -> None:
-    """Ensure the loader cache is clear before and after each test."""
-    clear_cache()
-    yield
-    clear_cache()
 
 
 def test_get_config_basic_file(tmp_path: Path) -> None:
@@ -74,18 +65,14 @@ def test_get_config_validation_error(tmp_path: Path) -> None:
         get_config(path=path, validator={"missing": str})
 
 
-def test_get_config_cache_and_clear(tmp_path: Path) -> None:
-    """Cache results across calls and respect manual invalidation."""
+def test_get_config_reloads_changed_files(tmp_path: Path) -> None:
+    """Reflect file changes when configuration is reloaded."""
     path = tmp_path / "config.json"
     path.write_text('{"feature": "fig"}', encoding="utf-8")
 
-    first = get_config(path=path)
-    assert dict(first) == {"feature": "fig"}
+    initial = get_config(path=path)
+    assert dict(initial) == {"feature": "fig"}
 
     path.write_text('{"feature": "jam"}', encoding="utf-8")
-    cached = get_config(path=path)
-    assert dict(cached) == {"feature": "fig"}
-
-    clear_cache()
     refreshed = get_config(path=path)
     assert dict(refreshed) == {"feature": "jam"}

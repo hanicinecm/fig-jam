@@ -4,7 +4,7 @@
 
 - **Name:** `fig-jam`
 - **Description:** Single-call configuration loader that locates, parses, validates, and returns project settings across common formats without per-project boilerplate.
-- **Scope:** Public API `fig_jam.get_config` and the supporting discovery, parsing, validation, caching, and diagnostics internals required for v1.
+- **Scope:** Public API `fig_jam.get_config` and the supporting discovery, parsing, validation, and diagnostics internals required for v1.
 - **Audience:** Python package maintainers who manage shared configuration data across many internal services or are just tired of writing boilerplate config extraction layers.
 
 ## Public API
@@ -25,10 +25,6 @@ The package exposes the following public interface through the `fig_jam` namespa
     - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values.
     - `None` (no validator): Returns the raw parsed data as a dict with types determined by the parser.
 
-- **`clear_cache() -> None`**
-  - Clears the internal configuration cache.
-  - Use when config files change during program execution or when testing.
-
 ### Exceptions
 
 - **`ConfigSourceNotFoundError`**
@@ -47,7 +43,7 @@ The package exposes the following public interface through the `fig_jam` namespa
 ### Usage Example
 
 ```python
-from fig_jam import get_config, clear_cache, ConfigSourceNotFoundError
+from fig_jam import get_config, ConfigSourceNotFoundError
 from pathlib import Path
 
 try:
@@ -327,7 +323,6 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Deliver an intuitive API that discovers and parses JSON, TOML, YAML, and INI/CFG configs, with automatic format selection based on available dependencies.
   - Support validator types (Pydantic models, dataclasses, dict[str, type] specs, list[str] key selectors) to guarantee the presence of the data in the config and its shape.
   - Enforce deterministic discovery rules and produce actionable error guidance when configs are missing or invalid.
-  - Provide transparent in-process caching of successful loads to minimize repeat I/O.
   - Offer optional environment-variable overrides for targeted keys before validation.
 - **Non-goals:**
   - Building a CLI, daemon, or remote config service.
@@ -351,7 +346,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
   - Compatible with CPython >=3.9; fully typed and mypy/pyright friendly.
   - Linted and formatted with `ruff`.
-  - Thread-safe reads; caching must not expose shared mutable state.
+  - Thread-safe reads; repeated calls must remain side-effect free.
   - Works consistently across macOS, Linux, and Windows environments, including path handling and filesystem semantics.
   - Supports common text encodings across different operating systems:
     - Modern encodings: UTF-8 (primary), UTF-16, UTF-32 with BOM detection.
@@ -365,7 +360,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Design & Architecture / How
 
 - **Module layout:**
-  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → validation → result extraction) and serves as the implementation for `get_config()`. Handles caching and error surfacing.
+  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → validation → result extraction) and serves as the implementation for `get_config()`. Handles override integration and error surfacing.
   - `fig_jam.discovery`: takes `path` and `section` parameters and returns a structured object containing all candidate paths probed with their results. Internally invokes appropriate parsers from the parser registry for each candidate file. Each candidate contains either:
     - The parsed config data (as immutable mapping) or section content (if `section` was provided and found), or
     - An error describing what went wrong (file unreadable, invalid format, missing section, etc.). If a `section` is specified and not present in a candidate config, that candidate is rejected with a "section missing" error.
@@ -374,24 +369,17 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
     - Validated data (format depends on validator type: dict, Pydantic model instance, dataclass instance, etc.), or
     - An error from any stage (parse failure, missing section, validation failure, etc.). Validation is only attempted on candidates that successfully passed discovery; earlier errors are preserved and passed through unchanged.
   - `fig_jam.overrides`: applies environment variable overrides using pattern `FIG_JAM__{SECTION?}__KEY` before validation.
-  - `fig_jam.cache`: wraps `functools.cache` for memoized loads and exposes `clear_cache()`.
   - `fig_jam.exceptions`: defines typed exceptions with docstrings describing remediation. Includes public exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`) and internal ones (`DependencyUnavailableError` - public but not exposed in package namespace).
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference, overrides flag) to canonical forms in `loader`.
   2. **Discovery stage (discovery):** Based on `path` (file or directory) and `section`, enumerate all candidate paths and invoke appropriate parsers from the parser registry for each candidate. If `section` is provided, extract section content from successfully parsed configs. Output is a structured object with all candidate paths and either their data (config or section content as immutable mapping) or errors (parse failure, decoding error, missing section, etc.).
   3. **Override stage (overrides, optional):** If `enable_overrides=True`, merge environment variables into successfully discovered mappings before validation proceeds. Candidates with errors from discovery are passed through unchanged.
   4. **Validation stage (validation):** Filter discovery results through the validator based on its type (Pydantic model, dataclass, `dict[str, type]`, `list[str]`, or `None`). Validation is only attempted on candidates with successful data from previous stages. Output is a structured object with all candidate paths preserving the complete error history—candidates may have parse errors, missing section errors, or new validation errors. Only candidates that passed all previous stages and validation contain validated data (type determined by validator).
-  5. **Result extraction (loader):** Examine validation output. If exactly one candidate has valid data, return it (cached). If zero candidates succeeded, raise `ConfigSourceNotFoundError` with full diagnostic information showing all attempted paths and their respective errors across all stages. If multiple candidates succeeded, raise `ConfigSourceAmbiguityError` listing all matching files. All error messages include comprehensive diagnostics from the entire pipeline.
-  6. **Caching:** Successful results are cached keyed by canonical path, section, validator signature, and override state.
+  5. **Result extraction (loader):** Examine validation output. If exactly one candidate has valid data, return it. If zero candidates succeeded, raise `ConfigSourceNotFoundError` with full diagnostic information showing all attempted paths and their respective errors across all stages. If multiple candidates succeeded, raise `ConfigSourceAmbiguityError` listing all matching files. All error messages include comprehensive diagnostics from the entire pipeline.
 - **Environment overrides:**
   - Disabled by default; optional boolean flag enables merge before validation.
   - Environment key syntax: `FIG_JAM__SECTION__FIELD` (if section) or `FIG_JAM__FIELD` (no section), case-insensitive.
   - Values use the same coercion logic as validator hints; type coercion failures raise `ConfigValidationError`.
-- **Caching:**
-  - Internal `_load_config_cached` function decorated with `functools.cache`.
-  - Cache key incorporates canonical path string, section, validator descriptor (module + qualname for classes/callables, frozen dict/list for specs), and overrides signature.
-  - Validators that cannot be frozen or hashed (e.g., mutable objects or instances) bypass caching, with results computed fresh on each call.
-  - `fig_jam.clear_cache()` exposes manual invalidation.
 - **Error guidance:**
   - Missing config: raise `ConfigSourceNotFoundError` with list of all attempted paths and detailed errors for each (parse failures, missing sections, validation failures). Include a generated sample config snippet based on validator keys.
   - Ambiguous matches: raise `ConfigSourceAmbiguityError` enumerating all files that passed validation, making the selection ambiguous.
@@ -402,7 +390,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 Tests are written in parallel with each functional increment described below to keep coverage high and guide design.
 
 1. **Foundation:**
-   - Establish module skeletons (`exceptions.py`, `parsers.py`, `discovery.py`, `validation.py`, `loader.py`, `cache.py`, `overrides.py`).
+   - Establish module skeletons (`exceptions.py`, `parsers.py`, `discovery.py`, `validation.py`, `loader.py`, `overrides.py`).
    - Define public API signatures, type hints, and docstrings in `loader.py`.
    - Define all exception classes in `exceptions.py` (public: `ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`; internal: `DependencyUnavailableError` and other error types for parse failures, etc.).
 
@@ -443,32 +431,23 @@ Tests are written in parallel with each functional increment described below to 
    - Merge into successfully discovered mappings before validation.
    - Add unit tests for override application with and without sections, key parsing, and type coercion.
 
-6. **Cache module:**
-   - Wrap core loading logic with `functools.cache`.
-   - Cache key includes: canonical path, section, validator descriptor (module + qualname for classes/callables, frozen structure for dict/list specs), and override state.
-   - Validators that cannot be frozen or hashed bypass caching (compute fresh results on each call).
-   - Expose `clear_cache()` function.
-   - Ensure thread safety and immutability of cached data (return copies if necessary).
-   - Add unit tests for cache hits/misses, invalidation, and bypass behavior with unhashable validators.
-
-7. **Loader module:**
+6. **Loader module:**
    - Compose end-to-end `get_config()` function integrating all stages.
    - Examine validation output and enforce single-match invariant:
      - Zero valid candidates → raise `ConfigSourceNotFoundError` with full diagnostic info
-     - One valid candidate → return it (cached)
+     - One valid candidate → return it
      - Multiple valid candidates → raise `ConfigSourceAmbiguityError` listing all matches
    - Integrate stdlib `logging` for debug-level traceability (candidate enumeration, parse attempts, validation steps).
    - Add integration tests covering all error paths and success scenarios.
 
-8. **Comprehensive testing:**
+7. **Comprehensive testing:**
    - Author parametrized integration tests using fixture configs (JSON, TOML, YAML, CFG) across validator types.
    - Test section vs. no-section scenarios.
    - Test override combinations.
-   - Test caching behavior.
    - Verify all error messages include actionable remediation guidance.
    - Achieve 100% coverage on the `fig_jam` package.
 
-9. **CI/CD setup:**
+8. **CI/CD setup:**
    - Configure GitHub Actions CI matrix across OS (Ubuntu, macOS, Windows) and Python versions (3.9+).
    - Run linting & formatting checks (`ruff check` and `ruff format --check`).
    - Run test suite (`pytest`) with coverage reporting.
@@ -483,13 +462,11 @@ Tests are written in parallel with each functional increment described below to 
     - `discovery.py`: File vs. directory input, section extraction, missing files, empty directories, multiple candidates, encoding failures.
     - `validation.py`: Each validator type (None, list, dict, dataclass, Pydantic) with valid/invalid data, missing fields, type coercion, optional dependencies.
     - `overrides.py`: Environment variable parsing, merging with/without sections, key case handling, type coercion.
-    - `cache.py`: Cache hits/misses, invalidation via `clear_cache()`, different cache key components.
     - `exceptions.py`: Exception instantiation and message formatting.
   - **Integration tests:**
     - Parametrized tests using fixture configs (JSON, TOML, YAML, CFG) across all validator types and section/no-section scenarios.
     - End-to-end `get_config()` flows covering success paths, `ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, and `ConfigValidationError`.
     - Override integration with validation.
-    - Caching across multiple calls with same/different parameters.
   - **Negative-path tests:**
     - Missing files: verify `ConfigSourceNotFoundError` with attempted paths and errors.
     - Multiple valid matches: verify `ConfigSourceAmbiguityError` with list of matching files.
@@ -497,9 +474,6 @@ Tests are written in parallel with each functional increment described below to 
     - Dependency absence: verify clear install instructions.
     - Parse failures: verify errors include file path and specific parse error.
     - Missing sections: verify errors indicate section not found in config.
-  - **Performance smoke tests:**
-    - Cache hit latency (< 5 ms).
-    - Cold load bounds for typical configs.
 - **Acceptance criteria:**
   - `pytest` suite passes with 100% coverage on the `fig_jam` package.
   - All negative-path tests confirm error messages include remediation guidance.
@@ -514,5 +488,21 @@ Tests are written in parallel with each functional increment described below to 
   - *Override:* Environment-provided value that replaces parsed config entries when enabled.
   - *Ambiguity:* More than one candidate config or section passes validation, requiring explicit resolution.
 - **References:**
-  - Python stdlib modules: `pathlib`, `functools`, `json`, `configparser`, `tomllib` (Python ≥3.11).
+  - Python stdlib modules: `pathlib`, `json`, `configparser`, `tomllib` (Python ≥3.11).
   - Optional dependencies: `PyYAML`, `pydantic`, `tomli` (for Python <3.11).
+
+## Future Work
+
+### Config Caching
+
+- Define a cache contract where every `get_config` call produces an immutable result (e.g., mapping proxies, frozen dataclasses, immutable Pydantic models) so cached objects can be returned directly without defensive copying.
+- Formalize hashable identities for inputs: canonicalize paths, normalize section names, and derive stable fingerprints for validators (sorted key/type tuples for dict specs, reified field descriptors for dataclasses and Pydantic models).
+- Once those guarantees are enforced, layer memoization atop `_load_config_internal`, expose cache controls or metrics as needed, and ensure invalidation hooks exist for runtime file changes or explicit user requests.
+- Until then, document the residual risk that repeated calls re-read from disk so teams can decide whether to wrap `get_config` themselves.
+
+### Configuration Blueprint Generation
+
+- **Static call discovery:** Walk dependent codebases with `ast` or `libcst` to locate `fig_jam.get_config` invocations and capture literal arguments, flagging unresolved dynamic ones.
+- **Validator inspection:** For list/dict validators, emit key/type expectations; import dataclasses to read `__dataclass_fields__`; load Pydantic v2 models to extract `model_fields`, including constraints such as bounds or regex patterns. Custom validators remain manual documentation tasks.
+- **Aggregation model:** Group findings by canonical path and section, merge compatible validators, and highlight conflicts or mixed usage. Record whether overrides are enabled so environment variables can be documented.
+- **Markdown generation:** Render the collected data into templated documentation—sections per config path, tables of fields and types, and warnings for dynamic or manual follow-up requirements. Provide both a CLI and library API so teams can integrate the crawler into CI or doc pipelines.
