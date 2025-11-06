@@ -55,66 +55,45 @@ class DiscoveryResult:
         object.__setattr__(self, "candidates", tuple(self.candidates))
 
 
-def discover_candidates(path: Path | None, section: str | None) -> DiscoveryResult:
+def discover_candidates(path: Path, section: str | None) -> DiscoveryResult:
     """Enumerate and parse configuration candidates for downstream validation.
 
     Args:
-        path: Optional user-provided path to a configuration file or directory.
-            When ``None`` the user's home directory is used.
+        path: Canonical path to a configuration file or directory.
         section: Optional section key to extract from successful candidates.
 
     Returns:
         Immutable record of all attempted candidates and their diagnostics.
     """
-    normalized_path = _normalize_input_path(path)
-    if not normalized_path.exists():
+    if not path.exists():
         detail = DiagnosticDetail(
             stage="discovery.enumeration",
             message="Configured path does not exist.",
-            data={"path": str(normalized_path)},
+            data={"path": str(path)},
         )
-        candidate = DiscoveryCandidate(
-            path=normalized_path, data=None, diagnostics=(detail,)
-        )
+        candidate = DiscoveryCandidate(path=path, data=None, diagnostics=(detail,))
         return DiscoveryResult(candidates=(candidate,))
 
-    if normalized_path.is_file():
-        candidate = _evaluate_candidate(normalized_path, section)
+    if path.is_file():
+        candidate = _evaluate_candidate(path, section)
         return DiscoveryResult(candidates=(candidate,))
 
-    if normalized_path.is_dir():
-        candidates = _evaluate_directory(normalized_path, section)
+    if path.is_dir():
+        candidates = _evaluate_directory(path, section)
         return DiscoveryResult(candidates=candidates)
 
+    # Handle failure case where path is neither file nor directory
     detail = DiagnosticDetail(
         stage="discovery.enumeration",
         message="Configured path is neither a file nor a directory.",
-        data={"path": str(normalized_path)},
+        data={"path": str(path)},
     )
     candidate = DiscoveryCandidate(
-        path=normalized_path,
+        path=path,
         data=None,
         diagnostics=(detail,),
     )
     return DiscoveryResult(candidates=(candidate,))
-
-
-def _normalize_input_path(path: Path | None) -> Path:
-    """Normalise user supplied path parameters.
-
-    Args:
-        path: Candidate path provided by the caller or ``None`` to default to
-            the user's home directory.
-
-    Returns:
-        Canonical path suitable for file system enumeration.
-    """
-    base = path if path is not None else Path.home()
-    expanded = base.expanduser()
-    try:
-        return expanded.resolve()
-    except OSError:
-        return expanded
 
 
 def _evaluate_directory(
@@ -132,17 +111,16 @@ def _evaluate_directory(
         synthetic candidate when no supported files exist.
     """
     suffixes = {suffix.lower() for suffix in iter_registered_suffixes()}
-    candidates: list[DiscoveryCandidate] = []
-    for candidate_path in sorted(directory.iterdir()):
-        if not candidate_path.is_file():
-            continue
-        if candidate_path.suffix.lower() not in suffixes:
-            continue
-        candidates.append(_evaluate_candidate(candidate_path, section))
+    candidates = [
+        _evaluate_candidate(candidate_path, section)
+        for candidate_path in sorted(directory.iterdir())
+        if candidate_path.is_file() and candidate_path.suffix.lower() in suffixes
+    ]
 
     if candidates:
         return tuple(candidates)
 
+    # Handle case where no supported files were found
     detail = DiagnosticDetail(
         stage="discovery.enumeration",
         message="No configuration files with supported extensions were found.",
