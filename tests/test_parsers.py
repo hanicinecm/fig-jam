@@ -9,14 +9,11 @@ from typing import Any
 
 import pytest
 
-from fig_jam.parsers import (
-    get_registered_parser,
-    iter_registered_suffixes,
-    parse_ini,
-    parse_json,
-    parse_toml,
-    parse_yaml,
-)
+from fig_jam.parsers import get_registered_parser, iter_registered_suffixes
+from fig_jam.parsers.ini_parser import parse_ini
+from fig_jam.parsers.json_parser import parse_json
+from fig_jam.parsers.toml_parser import parse_toml
+from fig_jam.parsers.yaml_parser import parse_yaml
 
 
 def _toml_dependency_available() -> bool:
@@ -125,7 +122,7 @@ def test_parse_toml_missing_dependency(
         message = "tomli"
         raise ModuleNotFoundError(message)
 
-    monkeypatch.setattr("fig_jam.parsers._load_toml", missing_loader)
+    monkeypatch.setattr("fig_jam.parsers.toml_parser._load_toml", missing_loader)
 
     result = parse_toml(path)
 
@@ -177,7 +174,7 @@ def test_parse_yaml_missing_dependency(
         message = "pyyaml"
         raise ModuleNotFoundError(message)
 
-    monkeypatch.setattr("fig_jam.parsers._load_yaml", missing_yaml_loader)
+    monkeypatch.setattr("fig_jam.parsers.yaml_parser._load_yaml", missing_yaml_loader)
 
     result = parse_yaml(path)
 
@@ -196,7 +193,7 @@ def test_parse_yaml_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     def fake_loader(text: str) -> Mapping[str, Any]:
         return {"feature": text.split(":", maxsplit=1)[1].strip()}
 
-    monkeypatch.setattr("fig_jam.parsers._load_yaml", lambda: fake_loader)
+    monkeypatch.setattr("fig_jam.parsers.yaml_parser._load_yaml", lambda: fake_loader)
 
     result = parse_yaml(path)
 
@@ -214,7 +211,7 @@ def test_parse_yaml_requires_mapping(
     def fake_loader(_: str) -> list[str]:
         return ["fig", "jam"]
 
-    monkeypatch.setattr("fig_jam.parsers._load_yaml", lambda: fake_loader)
+    monkeypatch.setattr("fig_jam.parsers.yaml_parser._load_yaml", lambda: fake_loader)
 
     result = parse_yaml(path)
 

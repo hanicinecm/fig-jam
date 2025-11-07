@@ -15,11 +15,9 @@ from typing import Any, get_type_hints
 
 from fig_jam.exceptions import DiagnosticDetail
 from fig_jam.pipeline import PipelineBatch, PipelineCandidate
-from fig_jam.utils import (
-    coerce_for_annotation,
-    coerce_value,
-    describe_annotation,
-    freeze_mapping,
+from fig_jam.utils.mappings import freeze_mapping
+from fig_jam.utils.types import coerce_for_annotation, coerce_value, describe_annotation
+from fig_jam.utils.validators import (
     is_dataclass_validator,
     is_pydantic_validator,
     is_string_sequence_validator,
