@@ -50,6 +50,7 @@ def test_parse_json_success(tmp_path: Path) -> None:
     assert dict(result.data or {}) == {"feature": "fig"}
     detail = result.diagnostics[0]
     assert detail.stage == "parsers.json"
+    assert detail.data is not None
     assert detail.data["encoding"] == "utf-8"
     assert detail.data["attempted_encodings"] == ("utf-8",)
 
@@ -64,6 +65,7 @@ def test_parse_json_utf16_fallback(tmp_path: Path) -> None:
     assert result.success is True
     assert dict(result.data or {}) == {"feature": "jam"}
     detail = result.diagnostics[0]
+    assert detail.data is not None
     assert detail.data["encoding"] in {"utf-16", "utf-16-le", "utf-16-be"}
     attempts = detail.data["attempted_encodings"]
     assert attempts[0] == "utf-8"
@@ -80,6 +82,7 @@ def test_parse_json_invalid_content(tmp_path: Path) -> None:
     assert result.success is False
     detail = result.diagnostics[0]
     assert detail.message == "Failed to parse JSON content."
+    assert detail.data is not None
     assert detail.data["lineno"] == 1
     assert detail.data["colno"] == 2
 
@@ -128,6 +131,7 @@ def test_parse_toml_missing_dependency(
 
     assert result.success is False
     detail = result.diagnostics[0]
+    assert detail.data is not None
     assert detail.data["dependency"] == "tomli"
     assert detail.data["remediation"]
 
@@ -179,6 +183,7 @@ def test_parse_yaml_missing_dependency(
 
     assert result.success is False
     detail = result.diagnostics[0]
+    assert detail.data is not None
     assert detail.data["dependency"] == "pyyaml"
     assert detail.data["remediation"]
 

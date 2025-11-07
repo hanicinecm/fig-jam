@@ -1,9 +1,9 @@
 """Compose the end-to-end configuration loading workflow.
 
-This module orchestrates discovery, override merging, validation, and error
-shaping. Its public API `get_config` represents the package's primary entry
-point. The module couples to `fig_jam.discovery`, `fig_jam.overrides`,
-`fig_jam.validation`, `fig_jam.exceptions`, and `fig_jam.parsers` to connect
+This module orchestrates discovery, validation, validator-defined overrides,
+and error shaping. Its public API `get_config` represents the package's primary
+entry point. The module couples to `fig_jam.discovery`, `fig_jam.validation`,
+`fig_jam.exceptions`, and `fig_jam.parsers` to connect
 the pipeline stages.
 """
 
@@ -16,14 +16,13 @@ from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from fig_jam.discovery import DiscoveryCandidate, DiscoveryResult, discover_candidates
+from fig_jam.discovery import discover_candidates
 from fig_jam.exceptions import (
     CandidateDiagnostic,
     ConfigSourceAmbiguityError,
     ConfigSourceNotFoundError,
     ConfigValidationError,
 )
-from fig_jam.overrides import apply_overrides
 from fig_jam.parsers import iter_registered_suffixes
 from fig_jam.validation import (
     ValidationCandidate,
@@ -38,8 +37,6 @@ def get_config(
     path: Path | None = None,
     section: str | None = None,
     validator: Any | None = None,
-    *,
-    enable_overrides: bool = False,
 ) -> Any:
     """Load configuration data according to the provided parameters.
 
@@ -49,8 +46,6 @@ def get_config(
         section: Optional section key to extract from candidate mappings.
         validator: Optional schema or callable used to validate the resulting
             configuration.
-        enable_overrides: When ``True`` merges FIG_JAM environment overrides
-            prior to validation.
 
     Returns:
         Validated configuration object whose structure depends on the supplied
@@ -70,7 +65,6 @@ def get_config(
             "path": str(canonical_path),
             "section": section,
             "validator": _describe_validator(validator),
-            "enable_overrides": enable_overrides,
         },
     )
 
@@ -78,7 +72,6 @@ def get_config(
         canonical_path=canonical_path,
         section=section,
         validator=validator,
-        enable_overrides=enable_overrides,
         environment=environment,
     )
 
@@ -88,7 +81,6 @@ def _load_config_internal(
     canonical_path: Path,
     section: str | None,
     validator: Any | None,
-    enable_overrides: bool,
     environment: Mapping[str, str],
 ) -> Any:
     """Run the configuration pipeline stages in order.
@@ -97,7 +89,6 @@ def _load_config_internal(
         canonical_path: Canonical path derived from user input.
         section: Optional section key for extraction.
         validator: Optional validator supplied by the caller.
-        enable_overrides: Flag indicating whether overrides were requested.
         environment: Environment mapping from which overrides are derived.
 
     Returns:
@@ -117,14 +108,11 @@ def _load_config_internal(
         },
     )
 
-    if enable_overrides:
-        discovery_result = _apply_overrides(
-            discovery_result,
-            section=section,
-            environment=environment,
-        )
-
-    validation_result = validate_candidates(discovery_result, validator)
+    validation_result = validate_candidates(
+        discovery_result,
+        validator,
+        environment=environment,
+    )
     successes = sum(
         1 for candidate in validation_result.candidates if candidate.data is not None
     )
@@ -159,46 +147,6 @@ def _canonicalize_path(path: Path | None) -> Path:
         return expanded.resolve()
     except OSError:
         return expanded
-
-
-def _apply_overrides(
-    discovery_result: DiscoveryResult,
-    *,
-    section: str | None,
-    environment: Mapping[str, str],
-) -> DiscoveryResult:
-    """Apply environment overrides to discovery candidates when enabled.
-
-    Args:
-        discovery_result: Discovery results prior to override application.
-        section: Optional section key restricting overrides.
-        environment: Mapping of environment variables to inspect.
-
-    Returns:
-        Updated discovery result reflecting merged overrides and diagnostics.
-    """
-    updated_candidates: list[DiscoveryCandidate] = []
-    for candidate in discovery_result.candidates:
-        if candidate.data is None:
-            updated_candidates.append(candidate)
-            continue
-
-        outcome = apply_overrides(
-            candidate.data,
-            section=section,
-            environment=environment,
-        )
-        diagnostics = list(candidate.diagnostics) + list(outcome.diagnostics)
-        data = outcome.data if outcome.success else None
-        updated_candidates.append(
-            DiscoveryCandidate(
-                path=candidate.path,
-                data=data,
-                diagnostics=diagnostics,
-            )
-        )
-
-    return DiscoveryResult(candidates=tuple(updated_candidates))
 
 
 def _finalize_result(
@@ -238,7 +186,6 @@ def _finalize_result(
         diag
         for diag in diagnostics
         if any(detail.stage.startswith("validation.") for detail in diag.diagnostics)
-        or any(detail.stage.startswith("overrides.") for detail in diag.diagnostics)
     ]
 
     if validation_failures:

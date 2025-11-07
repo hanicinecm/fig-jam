@@ -1,64 +1,74 @@
-"""Tests for FIG_JAM environment overrides."""
+"""Tests for validator-defined environment overrides."""
 
 from __future__ import annotations
 
-from types import MappingProxyType
+from dataclasses import dataclass
+from typing import ClassVar
 
-from fig_jam.overrides import apply_overrides
+import pytest
 
-
-def test_apply_overrides_without_section() -> None:
-    """Apply overrides when no section is specified."""
-    data = MappingProxyType({"feature": {"name": "fig"}, "flag": False})
-    environment = {"FIG_JAM__FEATURE__NAME": "jam"}
-
-    outcome = apply_overrides(data, section=None, environment=environment)
-
-    assert outcome.success is True
-    assert outcome.data is not None
-    assert outcome.data["feature"]["name"] == "jam"
-    assert outcome.signature == (("FIG_JAM__FEATURE__NAME", "jam"),)
-    assert outcome.diagnostics
-    detail = outcome.diagnostics[0]
-    assert detail.stage == "overrides.merge"
+from fig_jam.overrides import resolve_validator_overrides
 
 
-def test_apply_overrides_with_section() -> None:
-    """Apply overrides scoped to a specified section."""
-    data = MappingProxyType({"host": "localhost"})
-    environment = {"FIG_JAM__DATABASE__PASSWORD": "secret"}
+@dataclass
+class SampleConfig:
+    """Dataclass used for override resolution tests."""
 
-    outcome = apply_overrides(data, section="database", environment=environment)
-
-    assert outcome.success is True
-    assert outcome.data is not None
-    assert outcome.data["password"] == "secret"  # noqa: S105 - test data
-    assert outcome.signature == (("FIG_JAM__DATABASE__PASSWORD", "secret"),)
+    host: str
+    token: str
+    __env_overrides__: ClassVar[dict[str, str]] = {"token": "API_TOKEN"}
 
 
-def test_apply_overrides_case_insensitive_matching() -> None:
-    """Match keys in a case-insensitive manner."""
-    data = MappingProxyType({"Feature": {"Name": "fig"}})
-    environment = {"FIG_JAM__feature__name": "jam"}
+def test_resolve_validator_overrides_applies_values() -> None:
+    """Resolve environment values declared by the validator."""
+    overrides, diagnostics = resolve_validator_overrides(
+        SampleConfig,
+        field_names=["host", "token"],
+        environment={"API_TOKEN": "secret-token"},
+    )
 
-    outcome = apply_overrides(data, section=None, environment=environment)
+    assert overrides == {"token": "secret-token"}
+    assert diagnostics
+    detail = diagnostics[0]
+    assert detail.stage == "validation.overrides"
+    assert detail.data == {"field": "token", "environment_variable": "API_TOKEN"}
 
-    assert outcome.success is True
-    assert outcome.data is not None
-    assert outcome.data["Feature"]["Name"] == "jam"
-    assert outcome.signature == (("FIG_JAM__feature__name", "jam"),)
+
+def test_resolve_validator_overrides_missing_variable() -> None:
+    """Skip overrides when environment variable is absent."""
+    overrides, diagnostics = resolve_validator_overrides(
+        SampleConfig,
+        field_names=["host", "token"],
+        environment={},
+    )
+
+    assert overrides == {}
+    assert diagnostics == ()
 
 
-def test_apply_overrides_unsupported_path() -> None:
-    """Reject overrides that target non-mapping parents."""
-    data = MappingProxyType({"feature": "fig"})
-    environment = {"FIG_JAM__FEATURE__NAME": "jam"}
+def test_resolve_validator_overrides_unknown_field() -> None:
+    """Raise TypeError when mapping references an unknown field."""
 
-    outcome = apply_overrides(data, section=None, environment=environment)
+    class BadConfig(SampleConfig):
+        __env_overrides__: ClassVar[dict[str, str]] = {"missing": "API_TOKEN"}
 
-    assert outcome.success is False
-    assert outcome.data is None
-    assert outcome.diagnostics
-    detail = outcome.diagnostics[0]
-    assert "non-mapping" in detail.message
-    assert outcome.signature == (("FIG_JAM__FEATURE__NAME", "jam"),)
+    with pytest.raises(TypeError):
+        resolve_validator_overrides(
+            BadConfig,
+            field_names=["host", "token"],
+            environment={"API_TOKEN": "secret-token"},
+        )
+
+
+def test_resolve_validator_overrides_non_mapping() -> None:
+    """Raise TypeError when __env_overrides__ is not a mapping."""
+
+    class AnotherConfig(SampleConfig):
+        __env_overrides__ = "not-a-mapping"  # type: ignore[assignment]
+
+    with pytest.raises(TypeError):
+        resolve_validator_overrides(
+            AnotherConfig,
+            field_names=["host", "token"],
+            environment={"API_TOKEN": "secret-token"},
+        )

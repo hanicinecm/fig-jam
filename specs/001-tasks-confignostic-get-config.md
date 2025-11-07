@@ -6,7 +6,7 @@
 - `src/fig_jam/exceptions.py` - Define domain exceptions with remediation-focused messaging.
 - `src/fig_jam/parsers.py` - House parser registry, format-specific parsers, and encoding handling.
 - `src/fig_jam/discovery.py` - Implement candidate enumeration, parsing orchestration, and section extraction.
-- `src/fig_jam/overrides.py` - Apply environment-variable overrides prior to validation.
+- `src/fig_jam/overrides.py` - Resolve validator-defined environment overrides prior to validation.
 - `src/fig_jam/validation.py` - Validate parsed data against supported schema types.
 - `src/fig_jam/loader.py` - Orchestrate the end-to-end load pipeline with logging and diagnostics.
 - `tests/` - Mirror module structure with unit and integration coverage for the pipeline.
@@ -28,15 +28,15 @@
   - [x] 3.1 Normalize input paths (file, directory, or defaults) and enumerate candidates with registered suffixes.
   - [x] 3.2 Invoke registered parsers, capturing successful data or error payloads without losing context.
   - [x] 3.3 Extract requested sections and annotate missing-section failures while preserving parsed data immutability guarantees.
-- [x] 4 Implement environment override merging aligned with FIG_JAM naming.
-  - [x] 4.1 Parse environment variable keys into section-aware paths with case-insensitive handling.
-  - [x] 4.2 Merge overrides into immutable mappings prior to validation while surfacing unsupported override attempts.
+- [x] 4 Implement validator-defined environment override resolution.
+  - [x] 4.1 Validate `__env_overrides__` mappings to ensure keys reference known fields and values are environment variable names.
+  - [x] 4.2 Resolve matching environment variables for dataclass and Pydantic validators prior to validation while surfacing unsupported override attempts.
 - [x] 5 Deliver validator engine covering list, dict, dataclass, and Pydantic schemas.
   - [x] 5.1 Build validator dispatch plumbing that inspects the supplied schema type and routes accordingly.
   - [x] 5.2 Implement list/dict validators that perform key filtering, presence checks, and type coercion.
   - [x] 5.3 Integrate dataclass and Pydantic validation (with optional dependency loading) and normalize validation failures into diagnostic records.
 - [x] 6 Compose `get_config` loader workflow with diagnostics, logging, and error shaping.
-  - [x] 6.1 Orchestrate discovery, overrides, and validation to return a single validated candidate.
+  - [x] 6.1 Orchestrate discovery and validation (including validator overrides) to return a single validated candidate.
   - [x] 6.2 Raise `ConfigSourceNotFoundError` or `ConfigSourceAmbiguityError` with aggregated diagnostics when invariants fail.
   - [x] 6.3 Emit debug-level logging for discovery attempts, parser selection, and validator outcomes.
 - [ ] 7 Update packaging metadata and documentation to reflect new capabilities.

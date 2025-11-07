@@ -13,16 +13,15 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Functions
 
-- **`get_config(path: Path | None = None, section: str | None = None, validator: Any = None, *, enable_overrides: bool = False) -> Any`**
+- **`get_config(path: Path | None = None, section: str | None = None, validator: Any = None) -> Any`**
   - Main entry point for configuration loading.
   - `path`: Optional path to a config file or directory. If `None`, searches user's home directory.
   - `section`: Optional top-level key to extract from config before validation.
   - `validator`: Optional schema for validation (Pydantic model, dataclass, `dict[str, type]`, or `list[str]`).
-  - `enable_overrides`: When `True`, merges environment variables into parsed config before validation.
   - Returns validated configuration data in a format determined by the validator type:
     - `list[str]`: Returns a dict containing only the keys specified in the list (no type coercion).
     - `dict[str, type]`: Returns a dict containing only the keys specified in the dict, with values coerced to the specified types.
-    - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values.
+    - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values. Validators may define a `__env_overrides__` mapping to pull values from environment variables prior to validation.
     - `None` (no validator): Returns the raw parsed data as a dict with types determined by the parser.
 
 ### Exceptions
@@ -51,7 +50,6 @@ try:
         path=Path("./config"),
         section="database",
         validator={"host": str, "port": int},
-        enable_overrides=True
     )
     print(config["host"], config["port"])
 except ConfigSourceNotFoundError as e:
@@ -208,13 +206,13 @@ class DatabaseConfig(BaseModel):
     port: int
     user: str = "admin"  # Default user
     password: str  # Required, no default
+    __env_overrides__ = {"password": "APP_DB_PASSWORD"}
 
 
 db_config = get_config(
     path=Path("/home/wanda/app_settings.json"),
     section="database",
     validator=DatabaseConfig,
-    enable_overrides=True
 )
 
 print(f"Connecting to {db_config.host}:{db_config.port} as {db_config.user}")
@@ -222,14 +220,14 @@ print(f"Connecting to {db_config.host}:{db_config.port} as {db_config.user}")
 
 **First run:**
 
-When Wanda runs Cilia's app, she receives a `ConfigValidationError` with a message indicating that the required field `password` is missing from the `database` section in `/home/wanda/app_settings.json`. The error includes a suggestion to either add the field to the config or use an environment variable override.
+When Wanda runs Cilia's app, she receives a `ConfigValidationError` with a message indicating that the required field `password` is missing from the `database` section in `/home/wanda/app_settings.json`. The error suggests either adding the field to the config or setting the environment variable declared in `DatabaseConfig.__env_overrides__`.
 
 **Resolution:**
 
-Cilia sets the environment variable to provide the password without modifying the config file:
+Cilia sets the environment variable defined by the validator to provide the password without modifying the config file:
 
 ```bash
-export FIG_JAM__DATABASE__PASSWORD="secure_db_pass"
+export APP_DB_PASSWORD="secure_db_pass"
 ```
 
 Now when Wanda runs the application, it succeeds. The config is loaded with:
@@ -242,13 +240,13 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 - Pydantic validation ensures type safety and provides clear error messages for missing required fields.
 - Default values in the Pydantic model reduce boilerplate in config files.
-- Environment variable overrides allow sensitive data (like passwords) to be provided without storing them in config files.
+- Validator-defined environment overrides allow sensitive data (like passwords) to be provided without storing them in config files.
 - The error message precisely identifies which field is missing and from which section/file.
 
 **Key takeaways:**
 
 - Pydantic models enable sophisticated validation with defaults, type coercion, and clear error messages.
-- Environment overrides provide a secure way to supply sensitive configuration values.
+- Validator-defined environment overrides provide a secure way to supply sensitive configuration values.
 - Explicit file paths eliminate ambiguity when working with known config locations.
 - Validation errors reference the specific section and file, making debugging straightforward.
 
@@ -323,7 +321,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Deliver an intuitive API that discovers and parses JSON, TOML, YAML, and INI/CFG configs, with automatic format selection based on available dependencies.
   - Support validator types (Pydantic models, dataclasses, dict[str, type] specs, list[str] key selectors) to guarantee the presence of the data in the config and its shape.
   - Enforce deterministic discovery rules and produce actionable error guidance when configs are missing or invalid.
-  - Offer optional environment-variable overrides for targeted keys before validation.
+  - Allow dataclass and Pydantic validators to opt into environment-driven overrides by declaring explicit `__env_overrides__` mappings.
 - **Non-goals:**
   - Building a CLI, daemon, or remote config service.
   - Recursing into subdirectories or non-filesystem sources (S3, Vault, secrets managers).
@@ -336,11 +334,11 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Requirements / What
 
 - **Functional requirements:**
-  - Developer → calls `get_config(path, section=None, validator=None, *, enable_overrides=False)` → receives a validated result or a descriptive exception.
+  - Developer → calls `get_config(path, section=None, validator=None)` → receives a validated result or a descriptive exception.
   - Developer → passes a directory path → loader inspects only top-level files of supported formats, applying validators and succeeding only when exactly one match remains.
   - Developer → passes `section` → loader extracts the top-level key before validation and return.
   - Developer → provides validator (Pydantic model, dataclass, dict[str, type], list[str]) → loader coerces/filters data accordingly and returns the coerced structure.
-  - Developer → enables overrides → loader merges matching environment variables into parsed data prior to validation.
+  - Developer → declares `__env_overrides__` on dataclass or Pydantic validators → loader pulls matching environment variables into the candidate data prior to validation.
   - Developer → omits optional dependencies → loader skips unsupported formats/validators and raises `DependencyUnavailableError` with install instructions when needed.
 - **Non-functional requirements:**
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
@@ -360,7 +358,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Design & Architecture / How
 
 - **Module layout:**
-  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → validation → result extraction) and serves as the implementation for `get_config()`. Handles override integration and error surfacing.
+  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → validation → result extraction) and serves as the implementation for `get_config()`. Coordinates error surfacing and passes the process environment to validation for validator-declared overrides.
   - `fig_jam.discovery`: takes `path` and `section` parameters and returns a structured object containing all candidate paths probed with their results. Internally invokes appropriate parsers from the parser registry for each candidate file. Each candidate contains either:
     - The parsed config data (as immutable mapping) or section content (if `section` was provided and found), or
     - An error describing what went wrong (file unreadable, invalid format, missing section, etc.). If a `section` is specified and not present in a candidate config, that candidate is rejected with a "section missing" error.
@@ -368,18 +366,18 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - `fig_jam.validation`: takes the output of `discovery` and filters candidates through the validator. Returns a structured object with all probed paths and their complete error history. For each candidate, the output contains either:
     - Validated data (format depends on validator type: dict, Pydantic model instance, dataclass instance, etc.), or
     - An error from any stage (parse failure, missing section, validation failure, etc.). Validation is only attempted on candidates that successfully passed discovery; earlier errors are preserved and passed through unchanged.
-  - `fig_jam.overrides`: applies environment variable overrides using pattern `FIG_JAM__{SECTION?}__KEY` before validation.
+  - `fig_jam.overrides`: inspects validator-level `__env_overrides__` mappings and resolves environment-provided values prior to validation.
   - `fig_jam.exceptions`: defines typed exceptions with docstrings describing remediation. Includes public exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`) and internal ones (`DependencyUnavailableError` - public but not exposed in package namespace).
 - **Data flow:**
-  1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference, overrides flag) to canonical forms in `loader`.
+  1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
   2. **Discovery stage (discovery):** Based on `path` (file or directory) and `section`, enumerate all candidate paths and invoke appropriate parsers from the parser registry for each candidate. If `section` is provided, extract section content from successfully parsed configs. Output is a structured object with all candidate paths and either their data (config or section content as immutable mapping) or errors (parse failure, decoding error, missing section, etc.).
-  3. **Override stage (overrides, optional):** If `enable_overrides=True`, merge environment variables into successfully discovered mappings before validation proceeds. Candidates with errors from discovery are passed through unchanged.
+  3. **Override resolution (validator-defined, optional):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data just before validation. Candidates without overrides or without matching environment variables pass through unchanged.
   4. **Validation stage (validation):** Filter discovery results through the validator based on its type (Pydantic model, dataclass, `dict[str, type]`, `list[str]`, or `None`). Validation is only attempted on candidates with successful data from previous stages. Output is a structured object with all candidate paths preserving the complete error history—candidates may have parse errors, missing section errors, or new validation errors. Only candidates that passed all previous stages and validation contain validated data (type determined by validator).
   5. **Result extraction (loader):** Examine validation output. If exactly one candidate has valid data, return it. If zero candidates succeeded, raise `ConfigSourceNotFoundError` with full diagnostic information showing all attempted paths and their respective errors across all stages. If multiple candidates succeeded, raise `ConfigSourceAmbiguityError` listing all matching files. All error messages include comprehensive diagnostics from the entire pipeline.
 - **Environment overrides:**
-  - Disabled by default; optional boolean flag enables merge before validation.
-  - Environment key syntax: `FIG_JAM__SECTION__FIELD` (if section) or `FIG_JAM__FIELD` (no section), case-insensitive.
-  - Values use the same coercion logic as validator hints; type coercion failures raise `ConfigValidationError`.
+  - Disabled unless the validator (dataclass or Pydantic model) declares a `__env_overrides__` mapping.
+  - `__env_overrides__` maps validator field names to environment variable names (strings). Keys must form a subset of the validator's fields.
+  - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Downstream type coercion continues to be handled by the validator itself.
 - **Error guidance:**
   - Missing config: raise `ConfigSourceNotFoundError` with list of all attempted paths and detailed errors for each (parse failures, missing sections, validation failures). Include a generated sample config snippet based on validator keys.
   - Ambiguous matches: raise `ConfigSourceAmbiguityError` enumerating all files that passed validation, making the selection ambiguous.
@@ -426,10 +424,9 @@ Tests are written in parallel with each functional increment described below to 
    - Add unit tests for each validator type with valid/invalid data, optional dependency checks, and error preservation from earlier stages.
 
 5. **Overrides module:**
-   - Implement environment variable override merger.
-   - Parse keys using pattern `FIG_JAM__{SECTION?}__KEY` (case-insensitive).
-   - Merge into successfully discovered mappings before validation.
-   - Add unit tests for override application with and without sections, key parsing, and type coercion.
+   - Implement helpers that inspect validator-defined `__env_overrides__` mappings.
+   - Validate that mapping keys are known validator fields and values are environment variable names.
+   - Resolve matching environment variables into candidate data immediately before validation and emit diagnostics for applied overrides.
 
 6. **Loader module:**
    - Compose end-to-end `get_config()` function integrating all stages.
@@ -443,7 +440,7 @@ Tests are written in parallel with each functional increment described below to 
 7. **Comprehensive testing:**
    - Author parametrized integration tests using fixture configs (JSON, TOML, YAML, CFG) across validator types.
    - Test section vs. no-section scenarios.
-   - Test override combinations.
+   - Test validator override combinations.
    - Verify all error messages include actionable remediation guidance.
    - Achieve 100% coverage on the `fig_jam` package.
 
@@ -461,7 +458,7 @@ Tests are written in parallel with each functional increment described below to 
     - `parsers.py`: Each parser with valid files, malformed files, unsupported formats, decoding errors (UTF-8, UTF-16 with BOM, Latin-1, Windows-1252, invalid encodings), and missing dependencies.
     - `discovery.py`: File vs. directory input, section extraction, missing files, empty directories, multiple candidates, encoding failures.
     - `validation.py`: Each validator type (None, list, dict, dataclass, Pydantic) with valid/invalid data, missing fields, type coercion, optional dependencies.
-    - `overrides.py`: Environment variable parsing, merging with/without sections, key case handling, type coercion.
+    - `overrides.py`: Validator mapping validation, environment lookup resolution, and diagnostic emission for applied overrides.
     - `exceptions.py`: Exception instantiation and message formatting.
   - **Integration tests:**
     - Parametrized tests using fixture configs (JSON, TOML, YAML, CFG) across all validator types and section/no-section scenarios.
@@ -485,7 +482,7 @@ Tests are written in parallel with each functional increment described below to 
 
 - **Glossary:**
   - *Validator:* User-supplied schema or key selection that enforces config shape before return.
-  - *Override:* Environment-provided value that replaces parsed config entries when enabled.
+  - *Override:* Environment-provided value that replaces parsed config entries when a validator declares a `__env_overrides__` mapping.
   - *Ambiguity:* More than one candidate config or section passes validation, requiring explicit resolution.
 - **References:**
   - Python stdlib modules: `pathlib`, `json`, `configparser`, `tomllib` (Python ≥3.11).
@@ -504,5 +501,6 @@ Tests are written in parallel with each functional increment described below to 
 
 - **Static call discovery:** Walk dependent codebases with `ast` or `libcst` to locate `fig_jam.get_config` invocations and capture literal arguments, flagging unresolved dynamic ones.
 - **Validator inspection:** For list/dict validators, emit key/type expectations; import dataclasses to read `__dataclass_fields__`; load Pydantic v2 models to extract `model_fields`, including constraints such as bounds or regex patterns. Custom validators remain manual documentation tasks.
-- **Aggregation model:** Group findings by canonical path and section, merge compatible validators, and highlight conflicts or mixed usage. Record whether overrides are enabled so environment variables can be documented.
-- **Markdown generation:** Render the collected data into templated documentation—sections per config path, tables of fields and types, and warnings for dynamic or manual follow-up requirements. Provide both a CLI and library API so teams can integrate the crawler into CI or doc pipelines.
+- **Aggregation model:** Group findings by canonical path and section, merge compatible validators, and highlight conflicts or mixed usage. Record whether validators declare `__env_overrides__` so environment variables can be documented.
+- **Markdown generation:** Render the collected data into templated documentation—sections per config path, tables of fields and types, and warnings for dynamic or manual follow-up requirements. Provide both a CLI and library API so teams can integrate the crawler into CI or doc pipelines. Triggered from CLI, printed to stdout.
+- **Template generation:** Render the collected data into a configuration template of the requested format, with default values filled in and required values filled with obvious placeholders. Triggered from CLI, printed to stdout.

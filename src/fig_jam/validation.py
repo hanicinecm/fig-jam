@@ -9,6 +9,7 @@ diagnostic records.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, dataclass, fields, is_dataclass
 from pathlib import Path
@@ -17,10 +18,13 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from fig_jam.discovery import DiscoveryResult
 from fig_jam.exceptions import DiagnosticDetail
+from fig_jam.overrides import resolve_validator_overrides
 
 try:
-    from pydantic import BaseModel as _PydanticBaseModel
-    from pydantic import ValidationError as _PydanticValidationError
+    from pydantic import BaseModel as _PydanticBaseModel  # type: ignore[import]
+    from pydantic import (  # type: ignore[import]
+        ValidationError as _PydanticValidationError,
+    )
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     _PydanticBaseModel = None  # type: ignore[assignment]
     _PydanticValidationError = None  # type: ignore[assignment]
@@ -70,6 +74,8 @@ class ValidationResult:
 def validate_candidates(
     discovery_result: DiscoveryResult,
     validator: Any,
+    *,
+    environment: Mapping[str, str] | None = None,
 ) -> ValidationResult:
     """Validate discovery results using the supplied validator.
 
@@ -77,11 +83,15 @@ def validate_candidates(
         discovery_result: Output from the discovery stage containing parsed
             candidates and diagnostics.
         validator: Validator descriptor supplied to `get_config`.
+        environment: Optional mapping of environment variables used to resolve
+            validator-defined overrides. Defaults to ``os.environ`` when
+            omitted.
 
     Returns:
         Validation results containing updated candidates with validation
         diagnostics.
     """
+    env_mapping = environment if environment is not None else os.environ
     candidates: list[ValidationCandidate] = []
     for candidate in discovery_result.candidates:
         diagnostics = list(candidate.diagnostics)
@@ -96,8 +106,13 @@ def validate_candidates(
             continue
 
         try:
-            validated, new_diagnostics = _run_validation(candidate.data, validator)
+            validated, new_diagnostics = _run_validation(
+                candidate.data,
+                validator,
+                env_mapping,
+            )
         except _ValidationFailureError as exc:
+            diagnostics.extend(exc.diagnostics)
             diagnostics.append(exc.diagnostic)
             candidates.append(
                 ValidationCandidate(
@@ -122,21 +137,29 @@ def validate_candidates(
 class _ValidationFailureError(Exception):
     """Raised when validation fails for a candidate."""
 
-    def __init__(self, diagnostic: DiagnosticDetail) -> None:
+    def __init__(
+        self,
+        diagnostic: DiagnosticDetail,
+        *,
+        diagnostics: Sequence[DiagnosticDetail] | None = None,
+    ) -> None:
         """Store the diagnostic detail associated with the failure."""
         super().__init__(diagnostic.message)
         self.diagnostic = diagnostic
+        self.diagnostics = tuple(diagnostics or ())
 
 
 def _run_validation(
     data: Mapping[str, Any],
     validator: Any,
+    environment: Mapping[str, str],
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
     """Run the validator against the provided mapping.
 
     Args:
         data: Mapping produced by the discovery stage.
         validator: Validator descriptor provided by the caller.
+        environment: Mapping of environment variables available for overrides.
 
     Returns:
         Pair containing the validated payload and additional diagnostics.
@@ -158,10 +181,10 @@ def _run_validation(
         return _validate_typed_mapping(data, validator)
 
     if _is_dataclass_validator(validator):
-        return _validate_dataclass(data, validator)
+        return _validate_dataclass(data, validator, environment)
 
     if _is_pydantic_validator(validator):
-        return _validate_pydantic(data, validator)
+        return _validate_pydantic(data, validator, environment)
 
     message = "Unsupported validator type."
     raise TypeError(message)
@@ -351,13 +374,16 @@ def _is_dataclass_validator(validator: Any) -> bool:
 
 
 def _validate_dataclass(
-    data: Mapping[str, Any], validator: type
+    data: Mapping[str, Any],
+    validator: type,
+    environment: Mapping[str, str],
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
     """Validate configuration using a dataclass validator.
 
     Args:
         data: Mapping produced by discovery.
         validator: Dataclass type describing expected configuration fields.
+        environment: Environment mapping used for validator overrides.
 
     Returns:
         Pair containing the dataclass instance and associated diagnostics.
@@ -366,25 +392,35 @@ def _validate_dataclass(
         _ValidationFailureError: If required fields are missing or coercion
         fails.
     """
+    field_definitions = tuple(fields(validator))
+    field_names = [definition.name for definition in field_definitions]
+    merged_data = dict(data)
+    overrides, override_diagnostics = resolve_validator_overrides(
+        validator,
+        field_names=field_names,
+        environment=environment,
+    )
+    if overrides:
+        merged_data.update(overrides)
+
     payload: dict[str, Any] = {}
     errors: list[str] = []
-
     type_hints = get_type_hints(validator)
 
-    for field in fields(validator):
+    for field in field_definitions:
         name = field.name
         has_default = (
             field.default is not MISSING
             or getattr(field, "default_factory", MISSING) is not MISSING
         )
 
-        if name not in data:
+        if name not in merged_data:
             if has_default:
                 continue
             errors.append(f"{name}: missing required field")
             continue
 
-        value = data[name]
+        value = merged_data[name]
         annotation = type_hints.get(name, field.type)
         try:
             payload[name] = _coerce_for_annotation(value, annotation)
@@ -401,7 +437,7 @@ def _validate_dataclass(
             message="Dataclass validation failed.",
             data={"errors": tuple(errors)},
         )
-        raise _ValidationFailureError(detail)
+        raise _ValidationFailureError(detail, diagnostics=override_diagnostics)
 
     try:
         instance = validator(**payload)
@@ -411,14 +447,18 @@ def _validate_dataclass(
             message="Dataclass instantiation failed.",
             data={"error": str(exc)},
         )
-        raise _ValidationFailureError(detail) from exc
+        raise _ValidationFailureError(
+            detail,
+            diagnostics=override_diagnostics,
+        ) from exc
 
     detail = DiagnosticDetail(
         stage="validation.dataclass",
         message="Validated configuration using dataclass schema.",
         data={"fields": tuple(payload)},
     )
-    return instance, (detail,)
+    diagnostics = (*tuple(override_diagnostics), detail)
+    return instance, diagnostics
 
 
 def _coerce_for_annotation(value: Any, annotation: Any) -> Any:
@@ -495,14 +535,34 @@ def _is_pydantic_validator(validator: Any) -> bool:
     return issubclass(validator, _PydanticBaseModel)
 
 
+def _get_pydantic_field_names(validator: type) -> list[str]:
+    """Return the declared field names for a Pydantic model."""
+    if hasattr(validator, "model_fields"):
+        fields_attr = validator.model_fields
+        if isinstance(fields_attr, Mapping):
+            return list(fields_attr)
+        return list(fields_attr.keys())  # pragma: no cover - defensive branch
+
+    if hasattr(validator, "__fields__"):
+        fields_attr = validator.__fields__
+        if isinstance(fields_attr, Mapping):
+            return list(fields_attr)
+        return list(fields_attr.keys())  # pragma: no cover - defensive branch
+
+    return []
+
+
 def _validate_pydantic(
-    data: Mapping[str, Any], validator: type
+    data: Mapping[str, Any],
+    validator: type,
+    environment: Mapping[str, str],
 ) -> tuple[Any, tuple[DiagnosticDetail, ...]]:
     """Validate configuration using a Pydantic model.
 
     Args:
         data: Mapping produced by discovery.
         validator: Pydantic model type supplied by the caller.
+        environment: Environment mapping used for validator overrides.
 
     Returns:
         Pair containing the Pydantic model instance and diagnostics.
@@ -516,19 +576,33 @@ def _validate_pydantic(
     ):  # pragma: no cover - optional dependency guard
         message = "Pydantic validator requested but pydantic is not available."
         raise RuntimeError(message)
+    field_names = _get_pydantic_field_names(validator)
+    merged_data = dict(data)
+    overrides, override_diagnostics = resolve_validator_overrides(
+        validator,
+        field_names=field_names,
+        environment=environment,
+    )
+    if overrides:
+        merged_data.update(overrides)
+
     try:
-        instance = validator(**dict(data))
+        instance = validator(**merged_data)
     except _PydanticValidationError as exc:  # type: ignore[misc]
         detail = DiagnosticDetail(
             stage="validation.pydantic",
             message="Pydantic validation failed.",
             data={"errors": exc.errors() if hasattr(exc, "errors") else str(exc)},
         )
-        raise _ValidationFailureError(detail) from exc
+        raise _ValidationFailureError(
+            detail,
+            diagnostics=override_diagnostics,
+        ) from exc
 
     detail = DiagnosticDetail(
         stage="validation.pydantic",
         message="Validated configuration using Pydantic model.",
         data={"model": f"{validator.__module__}.{validator.__qualname__}"},
     )
-    return instance, (detail,)
+    diagnostics = (*tuple(override_diagnostics), detail)
+    return instance, diagnostics

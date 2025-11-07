@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -76,3 +77,33 @@ def test_get_config_reloads_changed_files(tmp_path: Path) -> None:
     path.write_text('{"feature": "jam"}', encoding="utf-8")
     refreshed = get_config(path=path)
     assert dict(refreshed) == {"feature": "jam"}
+
+
+def test_get_config_dataclass_env_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apply environment overrides during loader validation."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        '{"database": {"host": "db.local"}}',
+        encoding="utf-8",
+    )
+
+    @dataclass
+    class DatabaseConfig:
+        host: str
+        password: str
+        __env_overrides__ = {"password": "DB_PASSWORD"}  # noqa: RUF012
+
+    monkeypatch.setenv("DB_PASSWORD", "super-secret")
+
+    result = get_config(
+        path=path,
+        section="database",
+        validator=DatabaseConfig,
+    )
+
+    assert isinstance(result, DatabaseConfig)
+    assert result.host == "db.local"
+    assert result.password == "super-secret"  # noqa: S105
