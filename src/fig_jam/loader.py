@@ -23,12 +23,11 @@ from fig_jam.exceptions import (
     ConfigSourceNotFoundError,
     ConfigValidationError,
 )
+from fig_jam.overrides import override_candidates
 from fig_jam.parsers import iter_registered_suffixes
-from fig_jam.validation import (
-    ValidationCandidate,
-    ValidationResult,
-    validate_candidates,
-)
+from fig_jam.pipeline import PipelineBatch, PipelineCandidate
+from fig_jam.utils.paths import canonicalize_path
+from fig_jam.validation import validate_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ def get_config(
         ConfigValidationError: When candidates are discovered but fail
             validation.
     """
-    canonical_path = _canonicalize_path(path)
+    canonical_path = canonicalize_path(path)
     environment = os.environ
     logger.debug(
         "Loading configuration",
@@ -99,23 +98,38 @@ def _load_config_internal(
         ConfigSourceAmbiguityError: When multiple candidates pass validation.
         ConfigValidationError: When candidates fail validation.
     """
-    discovery_result = discover_candidates(canonical_path, section)
+    discovery_batch = discover_candidates(canonical_path, section)
     logger.debug(
         "Discovery completed",
-        extra={
-            "path": str(canonical_path),
-            "candidate_count": len(discovery_result.candidates),
-        },
+        extra={"path": str(canonical_path), "candidate_count": len(discovery_batch)},
     )
 
-    validation_result = validate_candidates(
-        discovery_result,
+    overrides_batch = override_candidates(
+        discovery_batch,
         validator,
         environment=environment,
     )
-    successes = sum(
-        1 for candidate in validation_result.candidates if candidate.data is not None
+
+    override_events = sum(
+        1
+        for candidate in overrides_batch
+        for detail in candidate.diagnostics
+        if detail.stage.startswith("overrides.")
     )
+    if override_events:
+        logger.debug(
+            "Overrides applied",
+            extra={
+                "path": str(canonical_path),
+                "override_events": override_events,
+            },
+        )
+
+    validation_batch = validate_candidates(
+        overrides_batch,
+        validator,
+    )
+    successes = sum(1 for candidate in validation_batch if candidate.data is not None)
     logger.debug(
         "Validation completed",
         extra={
@@ -125,39 +139,20 @@ def _load_config_internal(
     )
 
     return _finalize_result(
-        validation_result,
+        validation_batch,
         validator=validator,
     )
 
 
-def _canonicalize_path(path: Path | None) -> Path:
-    """Resolve a user-supplied path to a canonical absolute path.
-
-    Args:
-        path: Candidate path supplied by the caller or ``None`` to default to
-            the user's home directory.
-
-    Returns:
-        Canonical path expanded for user directories and resolved when
-        possible.
-    """
-    base = path if path is not None else Path.home()
-    expanded = base.expanduser()
-    try:
-        return expanded.resolve()
-    except OSError:
-        return expanded
-
-
 def _finalize_result(
-    validation_result: ValidationResult,
+    validation_batch: PipelineBatch,
     *,
     validator: Any | None,
 ) -> Any:
     """Derive the final return value or raise a descriptive exception.
 
     Args:
-        validation_result: Validation outcomes for all candidates.
+        validation_batch: Validation outcomes for all candidates.
         validator: Validator provided by the caller.
 
     Returns:
@@ -169,14 +164,15 @@ def _finalize_result(
         ConfigSourceNotFoundError: When no candidates pass discovery or
             validation.
     """
-    successful = [c for c in validation_result.candidates if c.data is not None]
+    successful = [
+        candidate for candidate in validation_batch if candidate.data is not None
+    ]
 
     if len(successful) == 1:
         return successful[0].data
 
     diagnostics = tuple(
-        _build_candidate_diagnostic(candidate)
-        for candidate in validation_result.candidates
+        _build_candidate_diagnostic(candidate) for candidate in validation_batch
     )
 
     if len(successful) > 1:
@@ -202,7 +198,7 @@ def _finalize_result(
     )
 
 
-def _build_candidate_diagnostic(candidate: ValidationCandidate) -> CandidateDiagnostic:
+def _build_candidate_diagnostic(candidate: PipelineCandidate) -> CandidateDiagnostic:
     """Convert a validation candidate into a diagnostic record.
 
     Args:
@@ -216,7 +212,7 @@ def _build_candidate_diagnostic(candidate: ValidationCandidate) -> CandidateDiag
         data_preview = dict(candidate.data)
 
     return CandidateDiagnostic(
-        path=Path(candidate.source_path),
+        path=candidate.source_path,
         diagnostics=candidate.diagnostics,
         data_preview=data_preview,
     )

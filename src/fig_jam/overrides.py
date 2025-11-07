@@ -1,16 +1,71 @@
-"""Resolve validator-defined environment overrides.
-
-This module is consumed by `fig_jam.validation` to translate optional
-`__env_overrides__` mappings declared on dataclass and Pydantic validators
-into runtime configuration updates.
-"""
+"""Apply validator-defined environment overrides to pipeline candidates."""
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fig_jam.exceptions import DiagnosticDetail
+from fig_jam.pipeline import PipelineBatch, PipelineCandidate
+from fig_jam.utils.validators import (
+    get_dataclass_field_names,
+    get_pydantic_field_names,
+    is_dataclass_validator,
+    is_pydantic_validator,
+)
+
+
+def override_candidates(
+    batch: PipelineBatch,
+    validator: Any,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> PipelineBatch:
+    """Apply environment overrides declared on the validator.
+
+    Args:
+        batch: Pipeline candidates produced by discovery.
+        validator: Validator descriptor supplied to `get_config`.
+        environment: Optional environment mapping. Defaults to ``os.environ``.
+
+    Returns:
+        Updated pipeline batch reflecting any applied overrides.
+    """
+    if not isinstance(validator, type):
+        return batch
+
+    if is_dataclass_validator(validator):
+        field_names = get_dataclass_field_names(validator)
+    elif is_pydantic_validator(validator):
+        field_names = get_pydantic_field_names(validator)
+    else:
+        return batch
+
+    env_mapping = environment if environment is not None else os.environ
+    overrides, diagnostics = resolve_validator_overrides(
+        validator,
+        field_names=field_names,
+        environment=env_mapping,
+    )
+
+    if not overrides and not diagnostics:
+        return batch
+
+    def _apply(candidate: PipelineCandidate) -> PipelineCandidate:
+        if candidate.data is None or not isinstance(candidate.data, Mapping):
+            return candidate
+
+        updated = candidate
+        if overrides:
+            merged = dict(candidate.data)
+            merged.update(overrides)
+            updated = updated.with_data(merged)
+        if diagnostics:
+            updated = updated.extend_diagnostics(diagnostics)
+        return updated
+
+    return batch.map(_apply)
 
 
 def resolve_validator_overrides(
@@ -75,7 +130,7 @@ def resolve_validator_overrides(
             applied[field_name] = value
             diagnostics.append(
                 DiagnosticDetail(
-                    stage="validation.overrides",
+                    stage="overrides.environment",
                     message="Applied validator-defined environment override.",
                     data={"field": field_name, "environment_variable": env_name},
                 )

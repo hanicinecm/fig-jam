@@ -9,53 +9,18 @@ include the `discover_candidates` function and its supporting data classes.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 from fig_jam.exceptions import DiagnosticDetail
 from fig_jam.parsers import get_registered_parser, iter_registered_suffixes
+from fig_jam.pipeline import PipelineBatch, PipelineCandidate
+from fig_jam.utils.mappings import freeze_mapping
 
 
-@dataclass(frozen=True)
-class DiscoveryCandidate:
-    """Represents a single configuration file candidate.
-
-    Attributes:
-        path: Resolved path to the candidate.
-        data: Parsed configuration mapping or section content when available.
-        diagnostics: Sequence of diagnostics captured during discovery.
-    """
-
-    path: Path
-    data: Mapping[str, Any] | None
-    diagnostics: Sequence[DiagnosticDetail]
-
-    def __post_init__(self) -> None:
-        """Ensure diagnostics and data use immutable containers."""
-        object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
-        if self.data is not None and not isinstance(self.data, MappingProxyType):
-            object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
-
-
-@dataclass(frozen=True)
-class DiscoveryResult:
-    """Aggregated discovery outcome containing all probed candidates.
-
-    Attributes:
-        candidates: Ordered collection of candidate discovery results.
-    """
-
-    candidates: Sequence[DiscoveryCandidate]
-
-    def __post_init__(self) -> None:
-        """Freeze the candidate sequence to guarantee immutability."""
-        object.__setattr__(self, "candidates", tuple(self.candidates))
-
-
-def discover_candidates(path: Path, section: str | None) -> DiscoveryResult:
+def discover_candidates(path: Path, section: str | None) -> PipelineBatch:
     """Enumerate and parse configuration candidates for downstream validation.
 
     Args:
@@ -71,16 +36,20 @@ def discover_candidates(path: Path, section: str | None) -> DiscoveryResult:
             message="Configured path does not exist.",
             data={"path": str(path)},
         )
-        candidate = DiscoveryCandidate(path=path, data=None, diagnostics=(detail,))
-        return DiscoveryResult(candidates=(candidate,))
+        candidate = PipelineCandidate(
+            source_path=path,
+            data=None,
+            diagnostics=(detail,),
+        )
+        return PipelineBatch((candidate,))
 
     if path.is_file():
         candidate = _evaluate_candidate(path, section)
-        return DiscoveryResult(candidates=(candidate,))
+        return PipelineBatch((candidate,))
 
     if path.is_dir():
         candidates = _evaluate_directory(path, section)
-        return DiscoveryResult(candidates=candidates)
+        return PipelineBatch(candidates)
 
     # Handle failure case where path is neither file nor directory
     detail = DiagnosticDetail(
@@ -88,18 +57,18 @@ def discover_candidates(path: Path, section: str | None) -> DiscoveryResult:
         message="Configured path is neither a file nor a directory.",
         data={"path": str(path)},
     )
-    candidate = DiscoveryCandidate(
-        path=path,
+    candidate = PipelineCandidate(
+        source_path=path,
         data=None,
         diagnostics=(detail,),
     )
-    return DiscoveryResult(candidates=(candidate,))
+    return PipelineBatch((candidate,))
 
 
 def _evaluate_directory(
     directory: Path,
     section: str | None,
-) -> tuple[DiscoveryCandidate, ...]:
+) -> tuple[PipelineCandidate, ...]:
     """Evaluate all registered candidates within the provided directory.
 
     Args:
@@ -129,11 +98,15 @@ def _evaluate_directory(
             "supported_extensions": tuple(sorted(suffixes)),
         },
     )
-    candidate = DiscoveryCandidate(path=directory, data=None, diagnostics=(detail,))
+    candidate = PipelineCandidate(
+        source_path=directory,
+        data=None,
+        diagnostics=(detail,),
+    )
     return (candidate,)
 
 
-def _evaluate_candidate(path: Path, section: str | None) -> DiscoveryCandidate:
+def _evaluate_candidate(path: Path, section: str | None) -> PipelineCandidate:
     """Parse and optionally extract a section from a candidate file.
 
     Args:
@@ -151,26 +124,30 @@ def _evaluate_candidate(path: Path, section: str | None) -> DiscoveryCandidate:
             message="No parser is registered for the file extension.",
             data={"path": str(path), "extension": path.suffix.lower()},
         )
-        return DiscoveryCandidate(path=path, data=None, diagnostics=(detail,))
+        return PipelineCandidate(
+            source_path=path,
+            data=None,
+            diagnostics=(detail,),
+        )
 
     result = parser(path)
-    diagnostics = list(result.diagnostics)
-    if not result.success or result.data is None:
-        return DiscoveryCandidate(path=path, data=None, diagnostics=diagnostics)
+    candidate = PipelineCandidate(
+        source_path=path,
+        data=result.data if result.success else None,
+        diagnostics=result.diagnostics,
+    )
+    if not result.success or candidate.data is None:
+        return candidate
 
-    mapping = result.data
+    mapping = cast("Mapping[str, Any]", candidate.data)
     if section is None:
-        return DiscoveryCandidate(path=path, data=mapping, diagnostics=diagnostics)
+        return candidate
 
     section_result = _extract_section(mapping, section, path)
-    diagnostics.append(section_result.diagnostic)
+    updated = candidate.append_diagnostics(section_result.diagnostic)
     if section_result.data is None:
-        return DiscoveryCandidate(path=path, data=None, diagnostics=diagnostics)
-    return DiscoveryCandidate(
-        path=path,
-        data=section_result.data,
-        diagnostics=diagnostics,
-    )
+        return updated.with_data(None)
+    return updated.with_data(section_result.data)
 
 
 def _extract_section(
@@ -204,7 +181,7 @@ def _extract_section(
         )
         return _SectionExtraction(data=None, diagnostic=detail)
 
-    frozen = MappingProxyType(dict(value))
+    frozen = freeze_mapping(value)
     detail = DiagnosticDetail(
         stage="discovery.section",
         message=f"Section '{section}' extracted successfully.",

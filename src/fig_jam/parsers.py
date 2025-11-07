@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Any
 
 from fig_jam.exceptions import DependencyUnavailableError, DiagnosticDetail
+from fig_jam.utils.mappings import ensure_mapping, freeze_mapping
 
 try:
     import tomllib
@@ -200,38 +201,6 @@ def _read_text(path: Path) -> tuple[str, str, tuple[str, ...]]:
             return text, encoding, tuple(attempted)
 
     raise _DecodeError(attempted, errors)
-
-
-def _freeze_mapping(data: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return an immutable shallow copy of the mapping.
-
-    Args:
-        data: Mapping produced by a parser implementation.
-
-    Returns:
-        Mapping proxy that prevents downstream mutation.
-    """
-    if isinstance(data, MappingProxyType):
-        return data
-    return MappingProxyType(dict(data))
-
-
-def _ensure_mapping(value: Any) -> Mapping[str, Any]:
-    """Validate that the parsed root object is a mapping.
-
-    Args:
-        value: Parsed object returned by a decoder.
-
-    Returns:
-        Mapping proxy representing the configuration root.
-
-    Raises:
-        TypeError: If the parsed object is not a mapping.
-    """
-    if not isinstance(value, Mapping):
-        message = "Parsed data must be a mapping."
-        raise TypeError(message)
-    return _freeze_mapping(value)
 
 
 def _success_result(
@@ -420,7 +389,7 @@ def parse_json(path: Path) -> ParserResult:
         )
 
     try:
-        mapping = _ensure_mapping(parsed)
+        mapping = ensure_mapping(parsed)
     except TypeError:
         return _failure_result(
             path=path,
@@ -496,7 +465,7 @@ def parse_toml(path: Path) -> ParserResult:
         )
 
     try:
-        mapping = _ensure_mapping(parsed)
+        mapping = ensure_mapping(parsed)
     except TypeError:
         return _failure_result(
             path=path,
@@ -552,7 +521,7 @@ def parse_ini(path: Path) -> ParserResult:
     for section in parser.sections():
         data[section] = dict(parser.items(section))
 
-    mapping = _freeze_mapping(data)
+    mapping = freeze_mapping(data)
     return _success_result(
         path=path,
         format_name="ini",
@@ -616,7 +585,7 @@ def parse_yaml(path: Path) -> ParserResult:
         )
 
     try:
-        mapping = _ensure_mapping(parsed)
+        mapping = ensure_mapping(parsed)
     except TypeError:
         return _failure_result(
             path=path,

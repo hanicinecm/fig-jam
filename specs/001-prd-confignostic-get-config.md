@@ -21,7 +21,7 @@ The package exposes the following public interface through the `fig_jam` namespa
   - Returns validated configuration data in a format determined by the validator type:
     - `list[str]`: Returns a dict containing only the keys specified in the list (no type coercion).
     - `dict[str, type]`: Returns a dict containing only the keys specified in the dict, with values coerced to the specified types.
-    - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values. Validators may define a `__env_overrides__` mapping to pull values from environment variables prior to validation.
+    - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values. Validators may define a `__env_overrides__` mapping that the override stage uses to pull values from environment variables prior to validation.
     - `None` (no validator): Returns the raw parsed data as a dict with types determined by the parser.
 
 ### Exceptions
@@ -338,7 +338,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Developer → passes a directory path → loader inspects only top-level files of supported formats, applying validators and succeeding only when exactly one match remains.
   - Developer → passes `section` → loader extracts the top-level key before validation and return.
   - Developer → provides validator (Pydantic model, dataclass, dict[str, type], list[str]) → loader coerces/filters data accordingly and returns the coerced structure.
-  - Developer → declares `__env_overrides__` on dataclass or Pydantic validators → loader pulls matching environment variables into the candidate data prior to validation.
+  - Developer → declares `__env_overrides__` on dataclass or Pydantic validators → override stage pulls matching environment variables into the candidate data prior to validation.
   - Developer → omits optional dependencies → loader skips unsupported formats/validators and raises `DependencyUnavailableError` with install instructions when needed.
 - **Non-functional requirements:**
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
@@ -358,26 +358,24 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Design & Architecture / How
 
 - **Module layout:**
-  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → validation → result extraction) and serves as the implementation for `get_config()`. Coordinates error surfacing and passes the process environment to validation for validator-declared overrides.
+- `fig_jam.loader`: orchestrates the entire pipeline (discovery → overrides → validation → result extraction) and serves as the implementation for `get_config()`. Coordinates error surfacing and supplies the process environment to the override stage for validator-declared environment variables.
   - `fig_jam.discovery`: takes `path` and `section` parameters and returns a structured object containing all candidate paths probed with their results. Internally invokes appropriate parsers from the parser registry for each candidate file. Each candidate contains either:
     - The parsed config data (as immutable mapping) or section content (if `section` was provided and found), or
     - An error describing what went wrong (file unreadable, invalid format, missing section, etc.). If a `section` is specified and not present in a candidate config, that candidate is rejected with a "section missing" error.
   - `fig_jam.parsers`: provides a registry mapping file suffixes to parser callables (JSON via `json`, TOML via `tomllib` for Python ≥3.11 or optional `tomli` for older versions, YAML via optional PyYAML, CFG via `configparser`). Each parser is a function that converts a `Path` to an immutable mapping, decorated with `register_parser(extensions: str | Iterable[str])` to self-register. Parsers are invoked by the discovery module, not directly by users.
-  - `fig_jam.validation`: takes the output of `discovery` and filters candidates through the validator. Returns a structured object with all probed paths and their complete error history. For each candidate, the output contains either:
-    - Validated data (format depends on validator type: dict, Pydantic model instance, dataclass instance, etc.), or
-    - An error from any stage (parse failure, missing section, validation failure, etc.). Validation is only attempted on candidates that successfully passed discovery; earlier errors are preserved and passed through unchanged.
-  - `fig_jam.overrides`: inspects validator-level `__env_overrides__` mappings and resolves environment-provided values prior to validation.
+- `fig_jam.validation`: takes the `PipelineBatch` produced by discovery/overrides and filters candidates through the validator. Returns a new `PipelineBatch` with complete error history for each candidate and validated payloads (dict, dataclass instance, Pydantic model, etc.) attached to successful ones. Candidates that previously failed discovery continue to carry their diagnostics unchanged.
+- `fig_jam.overrides`: inspects validator-level `__env_overrides__` mappings and resolves environment-provided values prior to validation, emitting diagnostics for every applied override.
   - `fig_jam.exceptions`: defines typed exceptions with docstrings describing remediation. Includes public exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`) and internal ones (`DependencyUnavailableError` - public but not exposed in package namespace).
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
-  2. **Discovery stage (discovery):** Based on `path` (file or directory) and `section`, enumerate all candidate paths and invoke appropriate parsers from the parser registry for each candidate. If `section` is provided, extract section content from successfully parsed configs. Output is a structured object with all candidate paths and either their data (config or section content as immutable mapping) or errors (parse failure, decoding error, missing section, etc.).
-  3. **Override resolution (validator-defined, optional):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data just before validation. Candidates without overrides or without matching environment variables pass through unchanged.
-  4. **Validation stage (validation):** Filter discovery results through the validator based on its type (Pydantic model, dataclass, `dict[str, type]`, `list[str]`, or `None`). Validation is only attempted on candidates with successful data from previous stages. Output is a structured object with all candidate paths preserving the complete error history—candidates may have parse errors, missing section errors, or new validation errors. Only candidates that passed all previous stages and validation contain validated data (type determined by validator).
+  2. **Discovery stage (discovery):** Based on `path` (file or directory) and `section`, enumerate all candidate paths and invoke appropriate parsers from the parser registry for each candidate. If `section` is provided, extract section content from successfully parsed configs. Output is a `PipelineBatch` containing every candidate path paired with either its data (config or extracted section) or diagnostics describing failures (parse error, decoding error, missing section, etc.).
+  3. **Override resolution (overrides):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Emit diagnostics recording each applied override. Candidates without overrides or without matching variables pass through unchanged.
+  4. **Validation stage (validation):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each candidate that still has data. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures attach diagnostics describing the mismatch. Output remains a `PipelineBatch`, preserving the full history of diagnostics for every candidate.
   5. **Result extraction (loader):** Examine validation output. If exactly one candidate has valid data, return it. If zero candidates succeeded, raise `ConfigSourceNotFoundError` with full diagnostic information showing all attempted paths and their respective errors across all stages. If multiple candidates succeeded, raise `ConfigSourceAmbiguityError` listing all matching files. All error messages include comprehensive diagnostics from the entire pipeline.
 - **Environment overrides:**
   - Disabled unless the validator (dataclass or Pydantic model) declares a `__env_overrides__` mapping.
   - `__env_overrides__` maps validator field names to environment variable names (strings). Keys must form a subset of the validator's fields.
-  - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Downstream type coercion continues to be handled by the validator itself.
+  - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Applied overrides emit diagnostics with the `overrides.environment` stage label.
 - **Error guidance:**
   - Missing config: raise `ConfigSourceNotFoundError` with list of all attempted paths and detailed errors for each (parse failures, missing sections, validation failures). Include a generated sample config snippet based on validator keys.
   - Ambiguous matches: raise `ConfigSourceAmbiguityError` enumerating all files that passed validation, making the selection ambiguous.
@@ -407,7 +405,7 @@ Tests are written in parallel with each functional increment described below to 
    - Enumerate candidate paths based on registered parser extensions.
    - Invoke appropriate parsers for each candidate and collect results, catching exceptions and converting them to error records (including encoding errors with details about attempted encodings).
    - If `section` is provided, extract section content from successfully parsed configs. Candidates missing the specified section are rejected with a "section missing" error.
-   - Return structured result object with all candidate paths and their outcomes (immutable mapping data or errors from parsing/encoding/section extraction).
+   - Return a `PipelineBatch` with all candidate paths and their outcomes (immutable mapping data or diagnostics from parsing/encoding/section extraction).
    - Add unit tests for file input, directory input, section extraction, missing files, empty directories, parse failures, encoding failures, and missing sections.
 
 4. **Validation module:**
@@ -417,16 +415,16 @@ Tests are written in parallel with each functional increment described below to 
      - `dict[str, type]`: coerce values to specified types (raising `ConfigValidationError` on coercion failure), ensure all keys present, filter to only specified keys, return dict
      - Dataclass: instantiate from mapping, allow extra fields in source data, return dataclass instance with coerced types
      - Pydantic model: validate via model constructor allowing extra fields, handle validation errors, return model instance
-   - Take discovery output and process each candidate:
-     - Candidates with errors from discovery stage are passed through unchanged (preserving parse errors, missing section errors, etc.).
+   - Take the `PipelineBatch` from discovery/overrides and process each candidate:
+     - Candidates with errors from earlier stages are passed through unchanged (preserving parse errors, missing section errors, etc.).
      - Candidates with successful data are filtered through the validator; validation failures are converted to error records.
-   - Return structured result object with all candidate paths preserving complete error history (parse errors, section errors, validation errors) alongside any successfully validated data.
+   - Return a new `PipelineBatch` preserving complete error history (parse errors, section errors, validation errors) alongside any successfully validated data.
    - Add unit tests for each validator type with valid/invalid data, optional dependency checks, and error preservation from earlier stages.
 
 5. **Overrides module:**
    - Implement helpers that inspect validator-defined `__env_overrides__` mappings.
    - Validate that mapping keys are known validator fields and values are environment variable names.
-   - Resolve matching environment variables into candidate data immediately before validation and emit diagnostics for applied overrides.
+   - Provide an `override_candidates` stage that resolves matching environment variables into candidate data immediately before validation and emits diagnostics for applied overrides.
 
 6. **Loader module:**
    - Compose end-to-end `get_config()` function integrating all stages.

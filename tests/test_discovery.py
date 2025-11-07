@@ -14,8 +14,9 @@ def test_discover_file_without_section(tmp_path: Path) -> None:
 
     result = discover_candidates(path, section=None)
 
-    assert len(result.candidates) == 1
-    candidate = result.candidates[0]
+    candidates = tuple(result)
+    assert len(candidates) == 1
+    candidate = candidates[0]
     assert candidate.data is not None
     assert dict(candidate.data) == {"feature": "fig"}
     stages = [detail.stage for detail in candidate.diagnostics]
@@ -29,8 +30,9 @@ def test_discover_directory_with_section(tmp_path: Path) -> None:
 
     result = discover_candidates(tmp_path, section="feature")
 
-    assert len(result.candidates) == 1
-    candidate = result.candidates[0]
+    candidates = tuple(result)
+    assert len(candidates) == 1
+    candidate = candidates[0]
     assert candidate.data is not None
     assert dict(candidate.data) == {"name": "jam"}
     stages = [detail.stage for detail in candidate.diagnostics]
@@ -44,7 +46,7 @@ def test_discover_missing_section(tmp_path: Path) -> None:
 
     result = discover_candidates(path, section="missing")
 
-    candidate = result.candidates[0]
+    candidate = next(iter(result))
     assert candidate.data is None
     detail = candidate.diagnostics[-1]
     assert detail.stage == "discovery.section"
@@ -57,7 +59,7 @@ def test_discover_nonexistent_path(tmp_path: Path) -> None:
 
     result = discover_candidates(missing, section=None)
 
-    candidate = result.candidates[0]
+    candidate = next(iter(result))
     assert candidate.data is None
     detail = candidate.diagnostics[0]
     assert detail.stage == "discovery.enumeration"
@@ -70,7 +72,7 @@ def test_discover_directory_without_supported_configs(tmp_path: Path) -> None:
 
     result = discover_candidates(tmp_path, section=None)
 
-    candidate = result.candidates[0]
+    candidate = next(iter(result))
     assert candidate.data is None
     detail = candidate.diagnostics[0]
     assert detail.stage == "discovery.enumeration"
