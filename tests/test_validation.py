@@ -9,7 +9,7 @@ import pytest
 
 from fig_jam.exceptions import DiagnosticDetail
 from fig_jam.pipeline import PipelineBatch, PipelineCandidate
-from fig_jam.validation import validate_candidates
+from fig_jam.pipeline.validation import validate_candidates
 
 
 def _batch(*candidates: PipelineCandidate) -> PipelineBatch:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fig_jam.discovery import discover_candidates
+from fig_jam.pipeline.discovery import discover_candidates
 
 
 def test_discover_file_without_section(tmp_path: Path) -> None:

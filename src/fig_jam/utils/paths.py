@@ -22,3 +22,19 @@ def canonicalize_path(path: Path | None) -> Path:
         return expanded.resolve()
     except OSError:
         return expanded
+
+
+def normalize_extension(extension: str) -> str:
+    """Normalize a file extension.
+
+    Args:
+        extension: File extension to normalize.
+
+    Returns:
+        Normalized file extension starting with a dot and in lowercase.
+    """
+    if not extension:
+        message = "Parser extension cannot be empty."
+        raise ValueError(message)
+    normalized = extension if extension.startswith(".") else f".{extension}"
+    return normalized.lower()

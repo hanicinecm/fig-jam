@@ -8,7 +8,7 @@ from typing import Any
 
 from fig_jam.exceptions import DiagnosticDetail
 from fig_jam.pipeline import PipelineBatch, PipelineCandidate
-from fig_jam.utils.validators import (
+from fig_jam.pipeline._pipeline_utils import (
     get_dataclass_field_names,
     get_pydantic_field_names,
     is_dataclass_validator,

@@ -6,13 +6,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from fig_jam.parsers import (
-    ParserResult,
+from fig_jam.parsers import ParserResult, register_parser
+from fig_jam.parsers._parsers_utils import (
     _decode_and_validate,
     _dependency_failure_result,
     _failure_result,
     _success_result,
-    register_parser,
 )
 from fig_jam.utils.mappings import ensure_mapping
 

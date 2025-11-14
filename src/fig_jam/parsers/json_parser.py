@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fig_jam.parsers import (
-    ParserResult,
+from fig_jam.parsers import ParserResult, register_parser
+from fig_jam.parsers._parsers_utils import (
     _decode_and_validate,
     _failure_result,
     _success_result,
-    register_parser,
 )
 from fig_jam.utils.mappings import ensure_mapping
 

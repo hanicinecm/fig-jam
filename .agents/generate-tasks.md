@@ -18,9 +18,7 @@ The generated task list will follow the structure provided by the template `task
    Wait for confirmation from the developer before generating sub-tasks.
 4. **Generate Sub-Tasks**:
    Break down each parent task into smaller, actionable sub-tasks.
-5. **Identify Relevant Files**:
-   Based on the tasks and PRD, identify potential files that are relevant for this task list, and list these under the `Relevant Files` section of the task list (as specified in the task list template).
-6. **Save Task List**:
+5. **Save Task List**:
    Save the generated markdown document as `[n]-tasks-[feature-name].md` inside the `specs/` directory, where `n` is a zero-padded 3-digit sequence starting from 001 (e.g., `specs/001-tasks-data-model.md`).
 
 ## Guidelines

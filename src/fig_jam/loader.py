@@ -2,9 +2,8 @@
 
 This module orchestrates discovery, validation, validator-defined overrides,
 and error shaping. Its public API `get_config` represents the package's primary
-entry point. The module couples to `fig_jam.discovery`, `fig_jam.validation`,
-`fig_jam.exceptions`, and `fig_jam.parsers` to connect
-the pipeline stages.
+entry point. The module couples to `fig_jam.pipeline` stages, `fig_jam.exceptions`,
+and `fig_jam.parsers` to connect the pipeline stages.
 """
 
 from __future__ import annotations
@@ -16,18 +15,21 @@ from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from fig_jam.discovery import discover_candidates
 from fig_jam.exceptions import (
     CandidateDiagnostic,
     ConfigSourceAmbiguityError,
     ConfigSourceNotFoundError,
     ConfigValidationError,
 )
-from fig_jam.overrides import override_candidates
 from fig_jam.parsers import iter_registered_suffixes
-from fig_jam.pipeline import PipelineBatch, PipelineCandidate
+from fig_jam.pipeline import (
+    PipelineBatch,
+    PipelineCandidate,
+    discover_candidates,
+    override_candidates,
+    validate_candidates,
+)
 from fig_jam.utils.paths import canonicalize_path
-from fig_jam.validation import validate_candidates
 
 logger = logging.getLogger(__name__)
 

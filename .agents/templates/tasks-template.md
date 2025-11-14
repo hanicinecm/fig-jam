@@ -1,15 +1,6 @@
 # Task List for [project / feature name]
 
-## Relevant Files
-
-- `path/to/potential/file1.py` - Brief description of why this file is relevant.
-- `path/to/test_file1.py` - Unit tests for `file1.py`.
-- `path/to/yet_another_file.json` - You get the idea.
-
-### Notes (Optional)
-
-A section for any additional notes relevant to the impacted files, which are not
-part of any PRD or other instructions for AI agents.
+The tasklist needs to always be considered in tandem with the [projec / feature name] PRD specifications.
 
 ## Tasks
 

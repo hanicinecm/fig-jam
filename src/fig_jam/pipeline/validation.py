@@ -3,25 +3,25 @@
 This module dispatches across supported validator styles (lists, dictionaries,
 dataclasses, and Pydantic models) and converts results into structured
 diagnostics. It is consumed exclusively by `fig_jam.loader`, and couples to
-`fig_jam.discovery` for discovery outputs and `fig_jam.exceptions` for
+`fig_jam.pipeline.discovery` for discovery outputs and `fig_jam.exceptions` for
 diagnostic records.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import MISSING, fields, is_dataclass
+from dataclasses import MISSING, fields
 from typing import Any, get_type_hints
 
 from fig_jam.exceptions import DiagnosticDetail
 from fig_jam.pipeline import PipelineBatch, PipelineCandidate
-from fig_jam.utils.mappings import freeze_mapping
-from fig_jam.utils.types import coerce_for_annotation, coerce_value, describe_annotation
-from fig_jam.utils.validators import (
+from fig_jam.pipeline._pipeline_utils import (
     is_dataclass_validator,
     is_pydantic_validator,
     is_string_sequence_validator,
 )
+from fig_jam.utils.mappings import freeze_mapping
+from fig_jam.utils.types import coerce_for_annotation, coerce_value, describe_annotation
 
 try:
     from pydantic import BaseModel as _PydanticBaseModel  # type: ignore[import]
@@ -221,18 +221,6 @@ def _validate_typed_mapping(
         data={"keys": tuple(coerced)},
     )
     return freeze_mapping(coerced), (detail,)
-
-
-def _is_dataclass_validator(validator: Any) -> bool:
-    """Determine whether the validator is a dataclass type.
-
-    Args:
-        validator: Validator descriptor under inspection.
-
-    Returns:
-        Boolean indicating whether the validator is a dataclass.
-    """
-    return isinstance(validator, type) and is_dataclass(validator)
 
 
 def _validate_dataclass(
