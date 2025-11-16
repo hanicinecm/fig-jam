@@ -398,7 +398,6 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
     - Parsers attempt decoding with UTF-8 first, falling back to other encodings when necessary, with clear error messages on encoding failures.
   - Emits domain-specific exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`).
   - Diagnostics include attempted paths, expected extensions, validator summary, encoding errors, and remediation hints.
-  - Integrates with stdlib `logging` for traceability (debug-level discovery output).
   - Define module-level `__all__` only where namespace control is required (e.g., package `__init__` files) to avoid redundant lists that drift from the implementation.
 
 ## Design & Architecture / How
@@ -478,7 +477,6 @@ Tests are written in parallel with each functional increment described below to 
      - Zero valid candidates → raise `ConfigSourceNotFoundError` with full diagnostic info
      - One valid candidate → return it
      - Multiple valid candidates → raise `ConfigSourceAmbiguityError` listing all matches
-   - Integrate stdlib `logging` for debug-level traceability (candidate enumeration, parse attempts, validation steps).
    - Add integration tests covering all error paths and success scenarios.
 
 7. **Comprehensive testing:**
@@ -548,3 +546,9 @@ Tests are written in parallel with each functional increment described below to 
 - **Aggregation model:** Group findings by canonical path and section, merge compatible validators, and highlight conflicts or mixed usage. Record whether validators declare `__env_overrides__` so environment variables can be documented.
 - **Markdown generation:** Render the collected data into templated documentation—sections per config path, tables of fields and types, and warnings for dynamic or manual follow-up requirements. Provide both a CLI and library API so teams can integrate the crawler into CI or doc pipelines. Triggered from CLI, printed to stdout.
 - **Template generation:** Render the collected data into a configuration template of the requested format, with default values filled in and required values filled with obvious placeholders. Triggered from CLI, printed to stdout.
+
+### Diagnostics & Logging
+
+- Define an optional logging surface that mirrors the pipeline diagnostics (discovery/parse/overrides/validation stages) so operators can trace candidate handling at debug level without enabling exceptions.
+- Log candidate enumeration counts, parser format/encoding attempts, override resolution events, and validation successes/failures alongside metadata like paths and validator summaries so logs can correlate with eventual diagnostics.
+- Document how to configure `logging` (handlers, log levels) to capture these records and highlight that this telemetry is deferred until future work to keep the current release lean.
