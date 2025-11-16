@@ -26,34 +26,30 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Exceptions
 
-- **`ConfigSourceNotFoundError`**
-  - Raised when no valid config files are found at the specified path.
-  - Includes attempted paths and suggested config snippet based on validator.
-
-- **`ConfigSourceAmbiguityError`**
-  - Raised when multiple config files pass validation, making the selection ambiguous.
-  - Lists all matching files with validation results to guide resolution.
-
-- **`ConfigValidationError`**
-  - Raised when a config file is found and parsed successfully, but fails validation.
-  - Includes details about which fields are missing, have wrong types, or fail type coercion.
-  - Provides suggestions for fixing the config or using environment variable overrides.
+- **`ConfigError`**
+  - A universal error raised in any case which does not lead to a single valid config found for the given `path`, `section` and `validator`.
+  - The error can be raised for a variety of reasons:
+    - No configuration file (with a supported suffix) is found for the given path.
+    - No configuration file has been successfully decoded or parsed into the supported data structure.
+    - No configuration file has passed the validation stage.
+    - Etc.
+  - The error message will always unambiguously state what is wrong and how to correct it.
 
 ### Usage Example
 
 ```python
-from fig_jam import get_config, ConfigSourceNotFoundError
+from fig_jam import get_config, ConfigError
 from pathlib import Path
 
 try:
     config = get_config(
-        path=Path("./config"),
+        path=Path("./config.yaml"),
         section="database",
         validator={"host": str, "port": int},
     )
     print(config["host"], config["port"])
-except ConfigSourceNotFoundError as e:
-    print(f"Config not found: {e}")
+except ConfigError as e:
+    print(f"Config extraction failed with: {e}")
 ```
 
 ## Package Structure
@@ -69,38 +65,34 @@ src/fig_jam
 ├── parsers/
 │   ├── __init__.py
 │   ├── _parsers_utils.py
-│   ├── ini.py
-│   ├── json.py
-│   ├── toml.py
-│   └── yaml.py
+│   ├── ini_parser.py
+│   ├── json_parser.py
+│   ├── toml_parser.py
+│   └── yaml_parser.py
 ├── pipeline/
 │   ├── __init__.py
 │   ├── _pipeline_utils.py
-│   ├── discovery.py
-│   ├── overrides.py
-│   └── validation.py
+│   ├── discover.py
+│   ├── parse.py
+│   ├── override.py
+│   └── validate.py
 └── utils/
     ├── __init__.py
-    ├── mappings.py
-    ├── paths.py
-    └── types.py
+    └── ...
 ```
 
 - `__init__.py` re-exports the public API (`get_config`) and user-facing
   exceptions to keep imports ergonomic.
 - `loader.py` orchestrates the end-to-end workflow by composing the pipeline
   stages and shaping any surfaced errors.
-- `exceptions.py` defines diagnostic data structures and the domain-specific
-  error types raised by the loader.
-- The `parsers` package owns the registry (`__init__.py`), decoding helpers
-  (`_parsers_utils.py`), and one module per supported format (`ini.py`,
-  `json.py`, `toml.py`, `yaml.py`).
-- The `pipeline` package exposes shared candidate containers plus individual
-  stages: `_pipeline_utils.py` houses `PipelineCandidate` / `PipelineBatch`,
-  `discovery.py` enumerates files and extracts sections, `overrides.py` applies
-  validator-defined environment overrides, and `validation.py` runs schemata.
-- The `utils` package groups reusable helpers for mappings, path handling,
-  and annotation-aware coercion.
+- `exceptions.py` defines the exception raised by the loader. The exception contains
+  all the logic for composing helpful messages and hints what to do to resolve the
+  error.
+- The `parsers` package owns the registry of parsers defined for each suffix,
+  and a high-level surface for querying supported suffixes and the parser for the given suffix.
+- The `pipeline` package defines all the pipeline stages for the `loader` in individual
+  modules.
+- The `utils` package groups any shared helpers and utility code for the whole package.
 
 ## User Stories
 
@@ -120,7 +112,7 @@ src/fig_jam
    cfg_data = get_config()
    ```
 
-2. **First run** - She runs the code on a fresh system and receives a `ConfigSourceNotFoundError` explaining that no config files were found in her home directory (the default path when `path=None`). The error message lists the attempted paths and supported file extensions (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`).
+2. **First run** - She runs the code on a fresh system and receives a `ConfigError` explaining that no config files were found in her home directory (the default path when `path=None`). The error message lists the attempted paths and supported file extensions (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`).
 
 3. **Creating config** - Alice creates a file named `my_app_config.yaml` in her home directory with her settings:
 
@@ -129,7 +121,7 @@ src/fig_jam
    password: "12345"
    ```
 
-4. **Second run** - She runs her code again and receives a `ConfigSourceNotFoundError` with a different message: the YAML file was discovered but could not be parsed because the `pyyaml` dependency is not installed. The error includes installation instructions: `uv add pyyaml` or `pip install pyyaml`.
+4. **Second run** - She runs her code again and receives a `ConfigError` with a different message: the YAML file was discovered but could not be parsed because the `pyyaml` dependency is not installed. The error includes installation instructions: `uv add pyyaml` or `pip install pyyaml`.
 
 5. **Installing dependency** - Alice installs PyYAML using her preferred package manager.
 
@@ -266,7 +258,7 @@ print(f"Connecting to {db_config.host}:{db_config.port} as {db_config.user}")
 
 **First run:**
 
-When Wanda runs Cilia's app, she receives a `ConfigValidationError` with a message indicating that the required field `password` is missing from the `database` section in `/home/wanda/app_settings.json`. The error suggests either adding the field to the config or setting the environment variable declared in `DatabaseConfig.__env_overrides__`.
+When Wanda runs Cilia's app, she receives a `ConfigError` with a message indicating that the required field `password` is missing from the `database` section in `/home/wanda/app_settings.json`. The error suggests either adding the field to the config or setting the environment variable declared in `DatabaseConfig.__env_overrides__`.
 
 **Resolution:**
 
@@ -319,7 +311,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
    >>> config = get_config(path=Path("/home/wanda"))
    ```
 
-   He receives a `ConfigSourceAmbiguityError` indicating that multiple config files were found in `/home/wanda` (listing `my_config.toml`, `app_settings.json`, and `system_config.json`), and he needs to either specify an explicit file path or use a validator to disambiguate.
+   He receives a `ConfigError` indicating that multiple config files were found in `/home/wanda` (listing `my_config.toml`, `app_settings.json`, and `system_config.json`), and he needs to either specify an explicit file path or use a validator to disambiguate.
 
 2. **Using validation to filter** - Dominic adds a dataclass validator that describes the structure he's looking for:
 
@@ -343,7 +335,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 **Outcome:**
 
-- Without a validator, multiple configs caused ambiguity and raised `ConfigSourceAmbiguityError`.
+- Without a validator, multiple configs caused ambiguity and raised `ConfigError`.
 - The dataclass validator filtered candidates: only `system_config.json` passed validation because it contained the required `version` key with an integer value.
 - The other config files failed validation (missing `version` key or wrong type) and were eliminated, leaving exactly one valid candidate.
 - Dominic successfully identified the config containing `version=2` without manually inspecting files.
@@ -351,7 +343,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 **Key takeaways:**
 
 - Validators serve dual purposes: validation and disambiguation when multiple config files exist.
-- `ConfigSourceAmbiguityError` provides clear guidance when manual resolution is needed.
+- `ConfigError` provides clear guidance when manual resolution is needed.
 - Dataclass validators offer a lightweight alternative to Pydantic for simple validation scenarios.
 - The validation-based filtering mechanism enables config discovery based on content structure, not just file names.
 
@@ -385,7 +377,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Developer → passes `section` → loader extracts the top-level key before validation and return.
   - Developer → provides validator (Pydantic model, dataclass, dict[str, type], list[str]) → loader coerces/filters data accordingly and returns the coerced structure.
   - Developer → declares `__env_overrides__` on dataclass or Pydantic validators → override stage pulls matching environment variables into the candidate data prior to validation.
-  - Developer → omits optional dependencies → loader skips unsupported formats/validators and raises `DependencyUnavailableError` with install instructions when needed.
+  - Developer → omits optional dependencies → loader skips unsupported formats/validators and hints in a raised `ConfigError` that the path (or some paths) were skipped due to a missing dependency, with install instructions when needed. This applies to `yaml` format (requires `pyyaml`) or to `toml` format for older python without `tomllib` (requires `tomli`).
 - **Non-functional requirements:**
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
   - Compatible with CPython >=3.9; fully typed and mypy/pyright friendly.
@@ -396,136 +388,37 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
     - Modern encodings: UTF-8 (primary), UTF-16, UTF-32 with BOM detection.
     - Legacy encodings: ASCII, Latin-1 (ISO-8859-1), Windows-1252 (CP1252), for backward compatibility with older config files.
     - Parsers attempt decoding with UTF-8 first, falling back to other encodings when necessary, with clear error messages on encoding failures.
-  - Emits domain-specific exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`).
-  - Diagnostics include attempted paths, expected extensions, validator summary, encoding errors, and remediation hints.
-  - Define module-level `__all__` only where namespace control is required (e.g., package `__init__` files) to avoid redundant lists that drift from the implementation.
+  - Emits a single universal exception, but with domain-specific verbose message with thorough diagnostics and proposed fixes.
 
 ## Design & Architecture / How
 
-- **Module layout:**
-  - `fig_jam.loader`: orchestrates the entire pipeline (discovery → overrides → validation → result extraction) and serves as the implementation for `get_config()`. Coordinates error surfacing and supplies the process environment to the override stage for validator-declared environment variables.
-  - `fig_jam.pipeline`: packages the shared data containers plus each stage:
-    - `fig_jam.pipeline._pipeline_utils`: defines `PipelineCandidate` / `PipelineBatch`, ensuring every stage works with immutable containers.
-    - `fig_jam.pipeline.discovery`: takes `path` and `section` parameters, enumerates eligible files, and returns a structured batch describing success or diagnostics for every candidate. Successful candidates contain immutable mappings ( or extracted sections when `section` is provided); failures capture parser errors, decoding failures, or missing sections.
-    - `fig_jam.pipeline.overrides`: inspects validator-level `__env_overrides__` mappings, validates their shape, and resolves environment-provided values prior to validation, emitting diagnostics for every applied override.
-    - `fig_jam.pipeline.validation`: takes the `PipelineBatch` produced by discovery/overrides and filters candidates through the validator. Returns a new `PipelineBatch` with complete error history for each candidate and validated payloads (dict, dataclass instance, Pydantic model, etc.) attached to successful ones. Candidates that previously failed discovery continue to carry their diagnostics unchanged.
-  - `fig_jam.parsers`: provides the registry mapping file suffixes to parser callables (JSON via `json`, TOML via `tomllib` for Python ≥3.11 or optional `tomli` for older versions, YAML via optional PyYAML, CFG via `configparser`). Each parser (e.g., `parsers/json.py`, `parsers/toml.py`) is decorated with `register_parser(extensions: str | Iterable[str])` to self-register. Discovery invokes parsers, not end users.
-  - `fig_jam.exceptions`: defines typed exceptions with docstrings describing remediation. Includes public exceptions (`ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`) and internal ones (`DependencyUnavailableError` - public but not exposed in package namespace).
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
-  2. **Discovery stage (`fig_jam.pipeline.discovery`):** Based on `path` (file or directory) and `section`, enumerate all candidate paths and invoke appropriate parsers from the parser registry for each candidate. If `section` is provided, extract section content from successfully parsed configs. Output is a `PipelineBatch` containing every candidate path paired with either its data (config or extracted section) or diagnostics describing failures (parse error, decoding error, missing section, etc.).
-  3. **Override resolution (`fig_jam.pipeline.overrides`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Emit diagnostics recording each applied override. Candidates without overrides or without matching variables pass through unchanged.
-  4. **Validation stage (`fig_jam.pipeline.validation`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each candidate that still has data. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures attach diagnostics describing the mismatch. Output remains a `PipelineBatch`, preserving the full history of diagnostics for every candidate.
-  5. **Result extraction (loader):** Examine validation output. If exactly one candidate has valid data, return it. If zero candidates succeeded, raise `ConfigSourceNotFoundError` with full diagnostic information showing all attempted paths and their respective errors across all stages. If multiple candidates succeeded, raise `ConfigSourceAmbiguityError` listing all matching files. All error messages include comprehensive diagnostics from the entire pipeline.
+  2. **Discovery (`fig_jam.pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects, which will flow through the whole pipeline from now on.
+  3. **Parsing (`fig_jam.pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
+  4. **Override resolution (`fig_jam.pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
+  5. **Validation stage (`fig_jam.pipeline.validate`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each acitive candidate. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures are logged.
+  6. **Result extraction (loader):** Examine the objects passed through the pipeline. If exactly one candidate has valid data, return it. In any other case, the `ConfigError` is raised with all the appropriate context data.
 - **Environment overrides:**
   - Disabled unless the validator (dataclass or Pydantic model) declares a `__env_overrides__` mapping.
   - `__env_overrides__` maps validator field names to environment variable names (strings). Keys must form a subset of the validator's fields.
-  - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Applied overrides emit diagnostics with the `overrides.environment` stage label.
+  - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Applied overrides are plugged into the payload and logged in the objects passed through the pipeline.
 - **Error guidance:**
-  - Missing config: raise `ConfigSourceNotFoundError` with list of all attempted paths and detailed errors for each (parse failures, missing sections, validation failures). Include a generated sample config snippet based on validator keys.
-  - Ambiguous matches: raise `ConfigSourceAmbiguityError` enumerating all files that passed validation, making the selection ambiguous.
-  - Missing dependency: Private `DependencyUnavailableError` raised internally when optional parsers or validators are unavailable, containing `pip install` and `uv add` command hints. Surfaces through public exceptions with remediation guidance.
+  - The error messages are constucted by the exception itself, based on all the context data also passed to the exception.
 
-## Implementation Plan
+## CI/CD setup
 
-Tests are written in parallel with each functional increment described below to keep coverage high and guide design.
-
-1. **Foundation:**
-   - Establish module skeletons matching the target layout (`exceptions.py`, `loader.py`, parser registry + format modules, and the `pipeline/` sub-package with `_pipeline_utils.py`, `discovery.py`, `overrides.py`, `validation.py`).
-   - Define public API signatures, type hints, and docstrings in `loader.py`.
-   - Define all exception classes in `exceptions.py` (public: `ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, `ConfigValidationError`; internal: `DependencyUnavailableError` and other error types for parse failures, etc.).
-
-2. **Parsers module:**
-   - Implement parser registry with dynamic dependency detection (JSON via `json`, TOML via `tomllib` for Python ≥3.11 or optional `tomli` for older versions, YAML via optional PyYAML, CFG via `configparser`).
-   - Each parser decorated with `register_parser(extensions: str | Iterable[str])` to self-register.
-   - Each parser callable takes a `Path` and returns either parsed content (as immutable mapping via `types.MappingProxyType`) or raises an appropriate exception (parse failure, decoding error, missing dependency).
-   - Implement encoding detection and fallback strategy:
-     - Attempt UTF-8 decoding first (with BOM detection for UTF-16/UTF-32).
-     - Fall back to legacy encodings (ASCII, Latin-1, Windows-1252) when UTF-8 fails.
-     - Raise clear exceptions indicating encoding issues and attempted encodings when all fail.
-   - Add unit tests for each parser with valid files, malformed files, missing dependency scenarios, and various encodings (UTF-8, UTF-16 with BOM, Latin-1, Windows-1252, mixed/invalid encodings).
-
-3. **Discovery module:**
-   - Implement path normalization (handle file vs. directory, `None` defaults to user's home directory).
-   - Enumerate candidate paths based on registered parser extensions.
-   - Invoke appropriate parsers for each candidate and collect results, catching exceptions and converting them to error records (including encoding errors with details about attempted encodings).
-   - If `section` is provided, extract section content from successfully parsed configs. Candidates missing the specified section are rejected with a "section missing" error.
-   - Return a `PipelineBatch` with all candidate paths and their outcomes (immutable mapping data or diagnostics from parsing/encoding/section extraction).
-   - Add unit tests for file input, directory input, section extraction, missing files, empty directories, parse failures, encoding failures, and missing sections.
-
-4. **Validation module:**
-   - Implement validator dispatcher for each supported type:
-     - `None`: pass through data unchanged (returns dict with parser-determined types)
-     - `list[str]`: filter to only specified keys, ensure all required keys present, return dict
-     - `dict[str, type]`: coerce values to specified types (raising `ConfigValidationError` on coercion failure), ensure all keys present, filter to only specified keys, return dict
-     - Dataclass: instantiate from mapping, allow extra fields in source data, return dataclass instance with coerced types
-     - Pydantic model: validate via model constructor allowing extra fields, handle validation errors, return model instance
-   - Take the `PipelineBatch` from discovery/overrides and process each candidate:
-     - Candidates with errors from earlier stages are passed through unchanged (preserving parse errors, missing section errors, etc.).
-     - Candidates with successful data are filtered through the validator; validation failures are converted to error records.
-   - Return a new `PipelineBatch` preserving complete error history (parse errors, section errors, validation errors) alongside any successfully validated data.
-   - Add unit tests for each validator type with valid/invalid data, optional dependency checks, and error preservation from earlier stages.
-
-5. **Overrides module:**
-   - Implement helpers that inspect validator-defined `__env_overrides__` mappings.
-   - Validate that mapping keys are known validator fields and values are environment variable names.
-   - Provide an `override_candidates` stage that resolves matching environment variables into candidate data immediately before validation and emits diagnostics for applied overrides.
-
-6. **Loader module:**
-   - Compose end-to-end `get_config()` function integrating all stages.
-   - Examine validation output and enforce single-match invariant:
-     - Zero valid candidates → raise `ConfigSourceNotFoundError` with full diagnostic info
-     - One valid candidate → return it
-     - Multiple valid candidates → raise `ConfigSourceAmbiguityError` listing all matches
-   - Add integration tests covering all error paths and success scenarios.
-
-7. **Comprehensive testing:**
-   - Author parametrized integration tests using fixture configs (JSON, TOML, YAML, CFG) across validator types.
-   - Test section vs. no-section scenarios.
-   - Test validator override combinations.
-   - Verify all error messages include actionable remediation guidance.
-   - Achieve 100% coverage on the `fig_jam` package.
-
-8. **CI/CD setup:**
-   - Configure GitHub Actions CI matrix across OS (Ubuntu, macOS, Windows) and Python versions (3.9+).
-   - Run linting & formatting checks (`ruff check` and `ruff format --check`).
-   - Run test suite (`pytest`) with coverage reporting.
-   - Add version consistency check ensuring installed package version matches latest `CHANGELOG.md` entry.
-   - Set up CD to publish to PyPI on GitHub releases with proper version tagging.
-
-## Validation & Testing
-
-- **Test strategy:**
-  - **Unit tests:**
-    - `fig_jam/parsers`: Each parser with valid files, malformed files, unsupported formats, decoding errors (UTF-8, UTF-16 with BOM, Latin-1, Windows-1252, invalid encodings), and missing dependencies.
-    - `fig_jam/pipeline/discovery.py`: File vs. directory input, section extraction, missing files, empty directories, multiple candidates, encoding failures.
-    - `fig_jam/pipeline/validation.py`: Each validator type (None, list, dict, dataclass, Pydantic) with valid/invalid data, missing fields, type coercion, optional dependencies.
-    - `fig_jam/pipeline/overrides.py`: Validator mapping validation, environment lookup resolution, and diagnostic emission for applied overrides.
-    - `fig_jam/exceptions.py`: Exception instantiation and message formatting.
-  - **Integration tests:**
-    - Parametrized tests using fixture configs (JSON, TOML, YAML, CFG) across all validator types and section/no-section scenarios.
-    - End-to-end `get_config()` flows covering success paths, `ConfigSourceNotFoundError`, `ConfigSourceAmbiguityError`, and `ConfigValidationError`.
-    - Override integration with validation.
-  - **Negative-path tests:**
-    - Missing files: verify `ConfigSourceNotFoundError` with attempted paths and errors.
-    - Multiple valid matches: verify `ConfigSourceAmbiguityError` with list of matching files.
-    - Validation failures: verify errors include field mismatches and validator expectations.
-    - Dependency absence: verify clear install instructions.
-    - Parse failures: verify errors include file path and specific parse error.
-    - Missing sections: verify errors indicate section not found in config.
-- **Acceptance criteria:**
-  - `pytest` suite passes with 100% coverage on the `fig_jam` package.
-  - All negative-path tests confirm error messages include remediation guidance.
-  - Structured result objects at each pipeline stage preserve full diagnostic context.
-  - Documentation includes quick-start examples for each validator type and override usage.
-  - `CHANGELOG.md` maintained with version history following semantic versioning.
+- Configure GitHub Actions CI matrix across OS (Ubuntu, macOS, Windows) and Python versions (3.9+).
+- Run linting & formatting checks (`ruff check` and `ruff format --check`).
+- Run test suite (`pytest`) with coverage reporting.
+- Add version consistency check ensuring installed package version matches latest `CHANGELOG.md` entry.
+- Set up CD to publish to PyPI on GitHub releases with proper version tagging.
 
 ## Appendices
 
 - **Glossary:**
   - *Validator:* User-supplied schema or key selection that enforces config shape before return.
   - *Override:* Environment-provided value that replaces parsed config entries when a validator declares a `__env_overrides__` mapping.
-  - *Ambiguity:* More than one candidate config or section passes validation, requiring explicit resolution.
 - **References:**
   - Python stdlib modules: `pathlib`, `json`, `configparser`, `tomllib` (Python ≥3.11).
   - Optional dependencies: `PyYAML`, `pydantic`, `tomli` (for Python <3.11).

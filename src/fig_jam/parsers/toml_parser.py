@@ -1,87 +1,19 @@
 """TOML parser implementation."""
 
-from __future__ import annotations
-
-from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from fig_jam.parsers import ParserResult, register_parser
-from fig_jam.parsers._parsers_utils import (
-    _decode_and_validate,
-    _dependency_failure_result,
-    _failure_result,
-    _success_result,
-)
-from fig_jam.utils.mappings import ensure_mapping
-
 try:
-    import tomllib
+    import tomllib  # type: ignore[import]
 except ModuleNotFoundError:  # pragma: no cover - exercised when tomllib missing
-    tomllib = None  # type: ignore[assignment]
+    tomllib = None
 
 try:
     import tomli  # type: ignore[import]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
-    tomli = None  # type: ignore[assignment]
+    tomli = None
 
 
-def _load_toml() -> Callable[[str], Mapping[str, Any]]:
-    if tomllib is not None:
-        return tomllib.loads
-    if tomli is None:  # pragma: no cover - optional dependency
-        message = "tomli"
-        raise ModuleNotFoundError(message)
-    return tomli.loads
-
-
-@register_parser(".toml")
-def parse_toml(path: Path) -> ParserResult:
+def parse_toml(path: Path) -> dict[str, Any]:
     """Parse a TOML configuration file."""
-    decoded = _decode_and_validate(path, format_name="toml")
-    if isinstance(decoded, ParserResult):
-        return decoded
-    text, encoding, attempted = decoded
-
-    try:
-        loader = _load_toml()
-    except ModuleNotFoundError:
-        return _dependency_failure_result(
-            path=path,
-            format_name="toml",
-            dependency="tomli",
-            reason="TOML parsing requires either Python 3.11+ or the 'tomli' package.",
-            extras=("tomli",),
-        )
-
-    try:
-        parsed = loader(text)
-    except (ValueError, TypeError) as exc:
-        extra = {"error": str(exc)}
-        return _failure_result(
-            path=path,
-            format_name="toml",
-            message="Failed to parse TOML content.",
-            encoding=encoding,
-            attempted_encodings=attempted,
-            extra=extra,
-        )
-
-    try:
-        mapping = ensure_mapping(parsed)
-    except TypeError:
-        return _failure_result(
-            path=path,
-            format_name="toml",
-            message="TOML root object must be a mapping.",
-            encoding=encoding,
-            attempted_encodings=attempted,
-        )
-
-    return _success_result(
-        path=path,
-        format_name="toml",
-        data=mapping,
-        encoding=encoding,
-        attempted_encodings=attempted,
-    )
+    ...
