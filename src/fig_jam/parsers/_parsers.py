@@ -1,4 +1,14 @@
-"""Parser implementations and registry for fig_jam."""
+"""Parser registry and built-in parsers for supported configuration files.
+
+The module defines the suffix-to-parser registry (`PARSER_REGISTRY`) that
+configuration discovery code inspects, along with every builtin parser
+implementation for INI, JSON, TOML, and YAML. It also encapsulates dependency
+checks and loader normalization so callers outside this package do not need to
+handle format-specific exceptions.
+
+The module exposes two public functions for querying the registry:
+`get_parser` and `iter_supported_suffixes`.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +40,8 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     yaml = None
 
+__all__ = ["get_parser", "iter_supported_suffixes"]
+
 
 Parser = Callable[[Path], dict[str, Any]]
 
@@ -37,12 +49,35 @@ PARSER_REGISTRY: dict[str, Parser] = {}
 
 
 def iter_supported_suffixes() -> Iterator[str]:
-    """Iterate over all registered parser suffixes."""
+    """Iterate through every suffix with a registered parser.
+
+    The iterator can be consumed by discovery stages that need to
+    enumerate the supported extensions without knowing which parsers are
+    actually available at runtime.
+
+    Returns:
+        An iterator over every registered suffix. Each suffix starts with a dot.
+    """
     yield from PARSER_REGISTRY.keys()
 
 
 def get_parser(suffix: str) -> Parser:
-    """Parse a configuration file based on its suffix."""
+    """Return the parser callable associated with the suffix.
+
+    The parser returned is a callable that accepts a `Path` and returns
+    a dictionary representing the parsed configuration file.
+    If the file under the path cannot be parsed, the callable raises one of the
+    parser errors (subclasses of the `ParserError` base class).
+
+    Args:
+        suffix: The suffix to look up, starting with a dot.
+
+    Returns:
+        The parser callable registered for the suffix.
+
+    Raises:
+        ValueError: When no parser is registered for the suffix.
+    """
     if suffix not in PARSER_REGISTRY:
         message = f"No parser registered for suffix: {suffix!r}"
         raise ValueError(message)
@@ -50,7 +85,12 @@ def get_parser(suffix: str) -> Parser:
 
 
 def register_parser(*suffixes: str) -> Callable[[Parser], Parser]:
-    """Register a parser for one or more suffixes.
+    """Register a parser for one or more suffixes ensuring they are valid.
+
+    The decorator enforces a naming pattern (a dot followed by alphanumeric
+    characters) and guards against overriding already-registered suffixes.
+    Each suffix is mapped to a single callable, so the first registration
+    wins and subsequent attempts raise to prevent ambiguity.
 
     Args:
         *suffixes: One or more suffixes to register the parser for.
@@ -80,7 +120,11 @@ def register_parser(*suffixes: str) -> Callable[[Parser], Parser]:
 
 @register_parser(".ini", ".cfg")
 def _parse_ini(path: Path) -> dict[str, Any]:
-    """Parse an INI or CFG configuration file.
+    """Parse INI and CFG files while honoring case and defaults.
+
+    ConfigParser is configured to preserve option and section casing, and both
+    section data and the implicit DEFAULT section are copied into a mapping
+    so callers can reason about every available entry.
 
     Args:
         path: Location of the INI or CFG file.
@@ -109,7 +153,11 @@ def _parse_ini(path: Path) -> dict[str, Any]:
 
 @register_parser(".json")
 def _parse_json(path: Path) -> dict[str, Any]:
-    """Parse a JSON configuration file.
+    """Parse a JSON configuration file into a mapping.
+
+    JSON source files are decoded through `parse_mapping` so syntax errors are
+    normalized to `ParserSyntaxError` and the loader ensures a mapping is
+    returned before any downstream code reads the configuration.
 
     Args:
         path: Location of the JSON file to decode.
@@ -126,7 +174,12 @@ def _parse_json(path: Path) -> dict[str, Any]:
 
 @register_parser(".toml")
 def _parse_toml(path: Path) -> dict[str, Any]:
-    """Parse a TOML configuration file.
+    """Parse a TOML configuration file using the available loader.
+
+    The function detects whether the stdlib `tomllib` is available and falls
+    back to `tomli` when running on older Python versions. If neither loader
+    is installed, a `ParserDependencyError` explains how to resolve the
+    dependency so that config discovery can proceed.
 
     Args:
         path: Location of the TOML file.
@@ -136,6 +189,7 @@ def _parse_toml(path: Path) -> dict[str, Any]:
 
     Raises:
         ParserDependencyError: When neither tomllib nor tomli is available.
+        ParserSyntaxError: When the TOML file is malformed.
     """
     loader = None
     if tomllib is not None:
@@ -151,7 +205,12 @@ def _parse_toml(path: Path) -> dict[str, Any]:
 
 @register_parser(".yaml", ".yml")
 def _parse_yaml(path: Path) -> dict[str, Any]:
-    """Parse a YAML configuration file.
+    """Parse a YAML configuration file through PyYAML's safe loader.
+
+    YAML parsing relies on PyYAML being installed and uses `yaml.safe_load`
+    to avoid executing arbitrary constructors while still producing native
+    Python structures. If the dependency is missing, a parser dependency error
+    points the caller at the installation instructions.
 
     Args:
         path: Location of the YAML file.
@@ -161,6 +220,8 @@ def _parse_yaml(path: Path) -> dict[str, Any]:
 
     Raises:
         ParserDependencyError: When PyYAML is not installed.
+        ParserSyntaxError: When the YAML file is malformed.
+        ParserTypeError: When the parsed data is not a mapping.
     """
     if yaml is None:
         dependency = "pyyaml"

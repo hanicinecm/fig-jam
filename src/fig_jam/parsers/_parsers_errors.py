@@ -1,4 +1,9 @@
-"""Parser-specific error hierarchy for fig_jam."""
+"""Parser-specific error hierarchy for fig_jam.
+
+This module exposes the exceptions raised by the builtin
+parsers, allowing the higher-level loader to catch and report consistent error
+types without binding to individual parsing libraries.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +12,19 @@ from pathlib import Path
 
 
 class ParserError(Exception):
-    """Base class for errors raised by parser implementations."""
+    """Base class for errors raised by parser implementations.
+
+    Parser-specific exceptions inherit from this class so the loader can
+    catch parser failures without being tied to a concrete format or failure
+    type.
+    """
 
 
 class ParserDependencyError(ParserError, ModuleNotFoundError):
     """Raised when a parser cannot run because a dependency is missing.
+
+    The exception message includes guidance so callers can install the
+    missing module and resume parsing without further dependency checks.
 
     Args:
         dependency: Name of the missing module.
@@ -30,6 +43,9 @@ class ParserDependencyError(ParserError, ModuleNotFoundError):
 
 class ParserDecodingError(ParserError, UnicodeError):
     """Raised when supported encodings cannot decode a configuration file.
+
+    The raised exception enumerates the encodings that were attempted so
+    callers can log or surface exactly why decoding failed before escalating.
 
     Args:
         path: Location of the file that could not be decoded.
@@ -51,6 +67,10 @@ class ParserDecodingError(ParserError, UnicodeError):
 class ParserSyntaxError(ParserError, ValueError):
     """Raised when the parser encounters invalid syntax.
 
+    Syntax errors are wrapped and re-raised so higher layers can surface a
+    consistent failure without depending on the loader's native exception
+    types.
+
     Args:
         path: Location of the file that failed to parse.
         error: Underlying exception describing the syntax issue.
@@ -69,6 +89,9 @@ class ParserSyntaxError(ParserError, ValueError):
 
 class ParserTypeError(ParserError, TypeError):
     """Raised when parsed content is not a mapping.
+
+    This guards the contract expected by the loader pipeline, which always
+    operates on mappings regardless of the serialization format.
 
     Args:
         path: Source file of the invalid data.
