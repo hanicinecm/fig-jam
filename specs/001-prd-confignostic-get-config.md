@@ -59,41 +59,31 @@ modular and explicit:
 
 ```text
 src/fig_jam
-├── __init__.py
-├── exceptions.py
-├── loader.py
 ├── parsers/
 │   ├── __init__.py
 │   ├── _parsers_errors.py
 │   ├── _parsers_utils.py
 │   └── _parsers.py
-├── pipeline/
-│   ├── __init__.py
-│   ├── _model.py
-│   ├── _pipeline_utils.py
-│   ├── discover.py
-│   ├── parse.py
-│   ├── override.py
-│   └── validate.py
-└── utils/
+└── pipeline/
     ├── __init__.py
-    └── ...
+    ├── _model.py
+    ├── _validators.py
+    ├── discover_sources.py
+    ├── parse_sources.py
+    ├── override_sources.py
+    └── validate_sources.py
 ```
 
-- `__init__.py` re-exports the public API (`get_config`) and user-facing
-  exceptions to keep imports ergonomic.
-- `loader.py` orchestrates the end-to-end workflow by composing the pipeline
-  stages and shaping any surfaced errors.
-- `exceptions.py` defines the exception raised by the loader. The exception contains
-  all the logic for composing helpful messages and hints what to do to resolve the
-  error.
-- The `parsers` package owns the registry of parsers defined for each suffix,
-  and a high-level surface for querying supported suffixes and the parser for the given suffix.
-- The `pipeline` package defines all the pipeline stages for the `loader` in individual
-  modules. Each stage module exposes exactly one public function that accepts a
-  `ConfigBatch` and returns the updated batch after the stage logic has been
-  applied.
-- The `utils` package groups any shared helpers and utility code for the whole package.
+- The `parsers` package owns the registry of parsers defined for each suffix and
+  exposes helpers for normalization, error handling, and supported suffix lookups.
+- The `pipeline` package currently contains the state models (`_model`), validator
+  introspection helpers (`_validators`), and the four stage implementations.
+  Each stage module exposes one public function that accepts a `ConfigBatch` and
+  returns the updated batch. Stages immediately return if `batch.error_code` is
+  already set, so factories can instantiate a batch and bail out early when the
+  root path or validator is invalid. These functions, along with `ConfigSource`,
+  `ConfigBatch`, `BatchErrorCode`, and `PipelineStage`, are re-exported from the
+  `fig_jam.pipeline` package for direct consumption.
 
 ## User Stories
 

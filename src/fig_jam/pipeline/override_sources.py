@@ -28,7 +28,7 @@ class OverridesStatus(str, Enum):
 def _collect_env_override_paths(validator: type | None) -> dict[tuple[str, ...], str]:
     """Collect override mappings for a model validator hierarchy.
 
-    Only acts on dataclass and Pydantic model types, otherwise returns an empty dict.
+    Only acts on dataclass or Pydantic model types, otherwise returns an empty dict.
 
     Args:
         validator: Validator type that may declare `__env_overrides__`.
@@ -39,8 +39,9 @@ def _collect_env_override_paths(validator: type | None) -> dict[tuple[str, ...],
     overrides: dict[tuple[str, ...], str] = {}
     if (
         validator is None
-        or not is_dataclass_validator(validator)
-        or not is_pydantic_validator(validator)
+        or not (
+            is_dataclass_validator(validator) or is_pydantic_validator(validator)
+        )
     ):
         return overrides
 
@@ -93,6 +94,8 @@ def _apply_nested_override(
 
 def override(batch: ConfigBatch) -> ConfigBatch:
     """Apply environment overrides defined by dataclass or Pydantic validators."""
+    if batch.error_code is not None:
+        return batch
     overrides = _collect_env_override_paths(batch.validator)
     for source in batch.sources:
         if source.stage_status is not ParsingStatus.PARSED:

@@ -15,11 +15,6 @@ from fig_jam.pipeline._validators import (
 )
 from fig_jam.pipeline.override_sources import OverridesStatus
 
-try:
-    from pydantic import BaseModel
-except ImportError:  # pragma: no cover - optional dependency
-    BaseModel = None
-
 
 class ValidationStatus(str, Enum):
     """Status codes emitted by the validation stage."""
@@ -94,6 +89,8 @@ def _handle_model_validator(
 
 def validate(batch: ConfigBatch) -> ConfigBatch:
     """Apply the provided validator to every active source."""
+    if batch.error_code is not None:
+        return batch
     validator = batch.validator
     for source in batch.sources:
         if source.stage_status not in {

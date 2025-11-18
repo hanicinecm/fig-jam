@@ -30,6 +30,8 @@ class ParsingStatus(str, Enum):
 
 def parse(batch: ConfigBatch) -> ConfigBatch:
     """Parse the configuration files identified by discovery."""
+    if batch.error_code is not None:
+        return batch
     for source in batch.sources:
         if source.stage_status is not DiscoveryStatus.DISCOVERED:
             continue

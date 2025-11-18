@@ -31,8 +31,9 @@ class DatabaseConfig:
     credentials: Credentials
 
 
-def _prepare_batch(tmp_path: Path) -> tuple[ConfigBatch, Path]:
+def _prepare_batch(tmp_path: Path, content: str) -> tuple[ConfigBatch, Path]:
     path = tmp_path / "config.json"
+    path.write_text(content)
     batch = ConfigBatch(root_path=path, section=None, validator=DatabaseConfig)
     return batch, path
 
@@ -41,8 +42,9 @@ def test_override_applies_env_variables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Overrides replace the payload values when environment variables exist."""
-    batch, path = _prepare_batch(tmp_path)
-    path.write_text('{"credentials": {"value": "initial"}}')
+    batch, path = _prepare_batch(
+        tmp_path, content='{"credentials": {"value": "initial"}}'
+    )
     monkeypatch.setenv("APP_VALUE", "replacement")
 
     discover(batch)
@@ -61,8 +63,7 @@ def test_override_reports_missing_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Missing override targets lead to a field-error status."""
-    batch, path = _prepare_batch(tmp_path)
-    path.write_text('{"credentials": {}}')
+    batch, path = _prepare_batch(tmp_path, content='{"credentials": {}}')
     monkeypatch.setenv("APP_VALUE", "replacement")
 
     discover(batch)
