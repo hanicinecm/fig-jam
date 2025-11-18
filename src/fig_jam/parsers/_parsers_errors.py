@@ -34,6 +34,7 @@ class ParserDependencyError(ParserError, ModuleNotFoundError):
     def __init__(self, dependency: str, hint: str) -> None:
         """Record the missing dependency and the resolution hint."""
         self.dependency = dependency
+        self.hint = hint
         message = (
             f"{dependency} is required to parse this configuration. {hint} "
             "This is an internal parser exception; if you see it, something went wrong."

@@ -1,0 +1,94 @@
+"""Parsing stage implementations for fig_jam."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from enum import Enum
+from types import MappingProxyType
+
+from fig_jam.parsers import get_parser
+from fig_jam.parsers._parsers_errors import (
+    ParserDecodingError,
+    ParserDependencyError,
+    ParserSyntaxError,
+    ParserTypeError,
+)
+from fig_jam.pipeline._model import ConfigBatch, PipelineStage
+from fig_jam.pipeline.discover_sources import DiscoveryStatus
+
+
+class ParsingStatus(str, Enum):
+    """Status codes emitted by the parsing stage."""
+
+    PARSED = "parsed"
+    MISSING_DEPENDENCY_ERROR = "missing-dependency-error"
+    DECODING_ERROR = "decoding-error"
+    SYNTAX_ERROR = "syntax-error"
+    TYPE_ERROR = "type-error"
+    MISSING_SECTION_ERROR = "missing-section-error"
+
+
+def parse(batch: ConfigBatch) -> ConfigBatch:
+    """Parse the configuration files identified by discovery."""
+    for source in batch.sources:
+        if source.stage_status is not DiscoveryStatus.DISCOVERED:
+            continue
+        source.last_visited_stage = PipelineStage.PARSE
+        try:
+            parser = get_parser(source.path.suffix)
+        except ValueError as error:
+            source.stage_status = ParsingStatus.TYPE_ERROR
+            source.stage_error_metadata = {
+                "message": str(error),
+                "suffix": source.path.suffix,
+            }
+            continue
+        try:
+            parsed = parser(source.path)
+        except ParserDependencyError as error:
+            source.stage_status = ParsingStatus.MISSING_DEPENDENCY_ERROR
+            source.stage_error_metadata = {
+                "dependency": error.dependency,
+                "hint": getattr(error, "hint", str(error)),
+            }
+            continue
+        except ParserDecodingError as error:
+            source.stage_status = ParsingStatus.DECODING_ERROR
+            source.stage_error_metadata = {
+                "attempted_encodings": list(error.attempted_encodings),
+                "reason": str(error),
+            }
+            continue
+        except ParserSyntaxError as error:
+            source.stage_status = ParsingStatus.SYNTAX_ERROR
+            source.stage_error_metadata = {
+                "message": str(error.error),
+                "exception": error.error,
+            }
+            continue
+        except ParserTypeError as error:
+            source.stage_status = ParsingStatus.TYPE_ERROR
+            source.stage_error_metadata = {
+                "expected": "mapping",
+                "actual": error.actual_type.__name__,
+            }
+            continue
+        payload = parsed
+        if batch.section is not None:
+            if not isinstance(parsed, Mapping) or batch.section not in parsed:
+                source.stage_status = ParsingStatus.MISSING_SECTION_ERROR
+                available = list(parsed.keys()) if isinstance(parsed, Mapping) else []
+                source.stage_error_metadata = {
+                    "section": batch.section,
+                    "available_keys": available,
+                }
+                continue
+            payload = parsed[batch.section]
+        source.raw_payload = MappingProxyType(parsed)
+        if isinstance(payload, Mapping):
+            source.payload = dict(payload)
+        else:
+            source.payload = payload
+        source.stage_status = ParsingStatus.PARSED
+        source.stage_error_metadata = {}
+    return batch

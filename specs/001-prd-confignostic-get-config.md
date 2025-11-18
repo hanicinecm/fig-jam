@@ -69,6 +69,7 @@ src/fig_jam
 │   └── _parsers.py
 ├── pipeline/
 │   ├── __init__.py
+│   ├── _model.py
 │   ├── _pipeline_utils.py
 │   ├── discover.py
 │   ├── parse.py
@@ -89,7 +90,9 @@ src/fig_jam
 - The `parsers` package owns the registry of parsers defined for each suffix,
   and a high-level surface for querying supported suffixes and the parser for the given suffix.
 - The `pipeline` package defines all the pipeline stages for the `loader` in individual
-  modules.
+  modules. Each stage module exposes exactly one public function that accepts a
+  `ConfigBatch` and returns the updated batch after the stage logic has been
+  applied.
 - The `utils` package groups any shared helpers and utility code for the whole package.
 
 ## User Stories
@@ -406,11 +409,11 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 ## Pipeline Specification
 
-The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics.
+The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics. All public stage functions, along with the `ConfigSource` and `ConfigBatch` models, are re-exported from the `fig_jam.pipeline` package namespace for convenient imports.
 
 ### Data Model
 
-**ConfigSource:** Represents a single candidate configuration file flowing through the pipeline.
+**ConfigSource (`fig_jam.pipeline._model`):** Represents a single candidate configuration file flowing through the pipeline.
 
 - `path: Path` — Immutable file path discovered during the discovery stage.
 - `raw_payload: MappingProxyType | None` — Frozen dict from the parser (immutable snapshot of parsed content).
@@ -420,7 +423,7 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 - `stage_status: str | None` — Status code (per-stage enum value) reported by the last visited stage (e.g., `"success"`, `"missing-dependency-error"`).
 - `stage_error_metadata: dict[str, Any]` — Free-form metadata specific to `stage_status`; includes diagnostics such as missing dependency name, exception object, or missing section name.
 
-**ConfigBatch:** Collection of `ConfigSource` objects flowing through the pipeline.
+**ConfigBatch (`fig_jam.pipeline._model`):** Collection of `ConfigSource` objects flowing through the pipeline.
 
 - `root_path: Path` — Original user-provided file or directory path.
 - `section: str | None` — Original user-provided section name.
@@ -428,10 +431,11 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 - `sources: list[ConfigSource]` — List of candidate sources discovered and processed.
 - `error_code: BatchErrorCode | None` — When discovery encounters a transport-level failure (unreadable path or non-file/directory), records the error and short-circuits the loader before further stages.
 
-**BatchErrorCode (`discover.py`):**
+**BatchErrorCode (`fig_jam.pipeline._model`):**
 
 ```python
 class BatchErrorCode(str, Enum):
+  PATH_NOT_FOUND = "path-not-found"
   PATH_NOT_ACCESSIBLE = "path-not-accessible"
   NOT_FILE_OR_DIRECTORY = "not-file-or-directory"
   INVALID_VALIDATOR_TYPE = "invalid-validator-type"
@@ -449,16 +453,17 @@ class BatchErrorCode(str, Enum):
 
 - If `root_path` is a file: create one `ConfigSource` for that path (even if the file/directory does not exist, in such case, an empty batch will be instantiated).
 - If `root_path` is a directory: enumerate top-level files matching supported suffixes (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`), sorted deterministically, and create one `ConfigSource` per file.
-- If `root_path` cannot be resolved due to access restrictions or because it is neither a file nor a directory, set `ConfigBatch.error_code` to the appropriate `BatchErrorCode`; missing files are handled later via per-source errors.
+- If `root_path` cannot be resolved because it does not exist, set `ConfigBatch.error_code` to `BatchErrorCode.PATH_NOT_FOUND`.
+- If `root_path` cannot be resolved due to access restrictions or because it is neither a file nor a directory, set `ConfigBatch.error_code` to the appropriate `BatchErrorCode`.
 - Set `last_visited_stage = PipelineStage.DISCOVER` on all sources that exist.
 - Successful sources set `stage_status = DiscoverStatus.DISCOVERED` and empty `stage_error_metadata`.
+- If `root_path` is a directory that exists but contains no supported config files, the batch is instantiated with an empty `sources` list and flows through the pipeline unchanged.
 
 **Status Enum (`discover.py`):**
 
 ```python
-class DiscoverStatus(str, Enum):
+class DiscoveryStatus(str, Enum):
   DISCOVERED = "discovered"
-  PATH_NOT_FOUND = "path-not-found"
   PATH_NOT_ACCESSIBLE = "path-not-accessible"
 ```
 
@@ -484,7 +489,7 @@ class DiscoverStatus(str, Enum):
 **Status Enum (`parse.py`):**
 
 ```python
-class ParseStatus(str, Enum):
+class ParsingStatus(str, Enum):
   PARSED = "parsed"
   MISSING_DEPENDENCY_ERROR = "missing-dependency-error"
   DECODING_ERROR = "decoding-error"
@@ -510,15 +515,15 @@ class ParseStatus(str, Enum):
 **Responsibilities:**
 
 - Only active sources are amended.
-- When the validator (dataclass or Pydantic model) defines `__env_overrides__`, traverse the payload using dot-notation paths derived from the validator hierarchy to apply env vars.
+- When the validator (dataclass or Pydantic model) defines `__env_overrides__`, traverse the payload using dot-notation paths derived from the validator hierarchy to apply env vars. The `__env_overrides__` mapping always uses local field names of that validator type (never dotted paths); dotted paths such as `"credentials.password"` are only used for the `applied_overrides` keys stored on `ConfigSource`.
 - If the env var is present, inject it into the payload and record the dotted path → env var name mapping inside `applied_overrides`.
-- Assign `OverrideStatus.NOT_CONFIGURED` when no validator or no mapping exists, `OverrideStatus.MAPPING_DEFINED` whenever a mapping is present (even if no env var applies) and `OverrideStatus.FIELD_NOT_FOUND` when the mapping references a field not present in the validator payload. `stage_error_metadata` captures the missing path.
+- Assign `OverrideStatus.NOT_CONFIGURED` when no validator or no mapping exists, `OverrideStatus.CONFIGURED` whenever a mapping is present and processed (even if no env var applies) and `OverrideStatus.FIELD_ERROR` when the mapping references a field not present in the validator payload. `stage_error_metadata` captures the missing path.
 - Set `last_visited_stage = PipelineStage.OVERRIDE` and update `stage_status`/`stage_error_metadata`.
 
 **Status Enum (`override.py`):**
 
 ```python
-class OverrideStatus(str, Enum):
+class OverridesStatus(str, Enum):
   CONFIGURED = "configured"
   NOT_CONFIGURED = "not-configured"
   FIELD_ERROR = "field-error"
@@ -540,14 +545,15 @@ class OverrideStatus(str, Enum):
 
 - Only active sources are validated.
 - When the validator is `None`, mark sources with `ValidateStatus.NO_VALIDATOR` and leave payload as-is.
-- When validator is `list[str]` or `dict[str, type]`, filter/coerce payload accordingly and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
-- When validator is a dataclass or Pydantic model, instantiate it with the payload, replace `payload` with the validated result, or record validation error metadata on failure.
+- When validator is `list[str]`, filter payload to the listed keys without any type coercion and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
+- When validator is `dict[str, type]`, it must always be a mapping from `str` to a concrete type. Filter payload to the listed keys, coercing values to the declared types (including collections such as `list`, where element types are not enforced and depend entirely on the config content and parser), and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
+- When validator is a dataclass or Pydantic model type, instantiate it with the payload, replace `payload` with the validated result, or record validation error metadata on failure. The `ConfigBatch.validator` attribute always holds the validator type, not an instance.
 - Always update `last_visited_stage = PipelineStage.VALIDATE` and record `stage_status`/`stage_error_metadata` for each source.
 
 **Status Enum (`validate.py`):**
 
 ```python
-class ValidateStatus(str, Enum):
+class ValidationStatus(str, Enum):
   NO_VALIDATOR = "no-validator"
   VALIDATED = "validated"
   VALIDATION_ERROR = "validation-error"
