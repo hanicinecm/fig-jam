@@ -64,11 +64,9 @@ src/fig_jam
 ├── loader.py
 ├── parsers/
 │   ├── __init__.py
+│   ├── _parsers_errors.py
 │   ├── _parsers_utils.py
-│   ├── ini_parser.py
-│   ├── json_parser.py
-│   ├── toml_parser.py
-│   └── yaml_parser.py
+│   └── _parsers.py
 ├── pipeline/
 │   ├── __init__.py
 │   ├── _pipeline_utils.py
@@ -405,6 +403,174 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Matching environment variables replace values in the candidate mapping prior to validation. Missing variables leave parsed values untouched. Applied overrides are plugged into the payload and logged in the objects passed through the pipeline.
 - **Error guidance:**
   - The error messages are constucted by the exception itself, based on all the context data also passed to the exception.
+
+## Pipeline Specification
+
+The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics.
+
+### Data Model
+
+**ConfigSource:** Represents a single candidate configuration file flowing through the pipeline.
+
+- `path: Path` — Immutable file path discovered during the discovery stage.
+- `raw_payload: MappingProxyType | None` — Frozen dict from the parser (immutable snapshot of parsed content).
+- `payload: Any | None` — Working payload that evolves through stages; starts as a dict copy of `raw_payload` after parsing and may become a dataclass or Pydantic instance after validation.
+- `applied_overrides: dict[str, str]` — Records which environment variables were applied, keyed by the dotted payload path (e.g., `"credentials.password" -> "APP_DB_PASSWORD"`).
+- `last_visited_stage: PipelineStage | None` — Enum value (`DISCOVER`, `PARSE`, `OVERRIDE`, `VALIDATE`) indicating the last stage this source reached, even if it failed.
+- `stage_status: str | None` — Status code (per-stage enum value) reported by the last visited stage (e.g., `"success"`, `"missing-dependency-error"`).
+- `stage_error_metadata: dict[str, Any]` — Free-form metadata specific to `stage_status`; includes diagnostics such as missing dependency name, exception object, or missing section name.
+
+**ConfigBatch:** Collection of `ConfigSource` objects flowing through the pipeline.
+
+- `root_path: Path` — Original user-provided file or directory path.
+- `section: str | None` — Original user-provided section name.
+- `validator: list | dict[str, type] | dataclass | pydantic.BaseModel | None` — User-provided validator.
+- `sources: list[ConfigSource]` — List of candidate sources discovered and processed.
+- `error_code: BatchErrorCode | None` — When discovery encounters a transport-level failure (unreadable path or non-file/directory), records the error and short-circuits the loader before further stages.
+
+**BatchErrorCode (`discover.py`):**
+
+```python
+class BatchErrorCode(str, Enum):
+  PATH_NOT_ACCESSIBLE = "path-not-accessible"
+  NOT_FILE_OR_DIRECTORY = "not-file-or-directory"
+  INVALID_VALIDATOR_TYPE = "invalid-validator-type"
+```
+
+### Pipeline Stages
+
+#### Stage 1: Discover
+
+**Input:** `root_path` (file or directory).
+
+**Output:** `ConfigBatch` either populated with candidate sources or short-circuited via `error_code` when resolution fails.
+
+**Responsibilities:**
+
+- If `root_path` is a file: create one `ConfigSource` for that path (even if the file/directory does not exist, in such case, an empty batch will be instantiated).
+- If `root_path` is a directory: enumerate top-level files matching supported suffixes (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`), sorted deterministically, and create one `ConfigSource` per file.
+- If `root_path` cannot be resolved due to access restrictions or because it is neither a file nor a directory, set `ConfigBatch.error_code` to the appropriate `BatchErrorCode`; missing files are handled later via per-source errors.
+- Set `last_visited_stage = PipelineStage.DISCOVER` on all sources that exist.
+- Successful sources set `stage_status = DiscoverStatus.DISCOVERED` and empty `stage_error_metadata`.
+
+**Status Enum (`discover.py`):**
+
+```python
+class DiscoverStatus(str, Enum):
+  DISCOVERED = "discovered"
+  PATH_NOT_FOUND = "path-not-found"
+  PATH_NOT_ACCESSIBLE = "path-not-accessible"
+```
+
+**Error Metadata Examples:**
+
+- `PATH_NOT_ACCESSIBLE`: `{"path": str(path), "reason": "permission denied"}`
+
+#### Stage 2: Parse
+
+**Input:** `ConfigBatch` with discovered sources (only active sources are processed).
+
+**Output:** `ConfigBatch` with parsed payloads and recorded parse statuses.
+
+**Responsibilities:**
+
+- For each active source: determine parser by suffix; if dependency missing, record error status/metadata.
+- Attempt decoding (UTF-8 first, fallbacks configured globally); on decoding failure, record metadata that includes `attempted_encodings`.
+- Invoke parser to convert text to dict; ensure the parser result is a mapping, otherwise record type error.
+- On success, populate both `raw_payload` (as `MappingProxyType`) and `payload` (as mutable dict copy).
+- When `section` is provided, extract the top-level key from `payload` and treat it as the new payload; missing section triggers `MISSING_SECTION_ERROR`.
+- Set `last_visited_stage = PipelineStage.PARSE` on each processed source and assign per-source `stage_status`/`stage_error_metadata`.
+
+**Status Enum (`parse.py`):**
+
+```python
+class ParseStatus(str, Enum):
+  PARSED = "parsed"
+  MISSING_DEPENDENCY_ERROR = "missing-dependency-error"
+  DECODING_ERROR = "decoding-error"
+  SYNTAX_ERROR = "syntax-error"
+  TYPE_ERROR = "type-error"
+  MISSING_SECTION_ERROR = "missing-section-error"
+```
+
+**Error Metadata Examples:**
+
+- `MISSING_DEPENDENCY_ERROR`: `{"dependency": "pyyaml", "hint": "uv add pyyaml"}`
+- `DECODING_ERROR`: `{"attempted_encodings": ["utf-8", "latin-1"], "reason": "..."}`
+- `SYNTAX_ERROR`: `{"message": "Invalid YAML", "line": 5, "column": 10, "exception": <exc>}`
+- `TYPE_ERROR`: `{"expected": "mapping", "actual": "list"}`
+- `MISSING_SECTION_ERROR`: `{"section": "database", "available_keys": ["logging"]}`
+
+#### Stage 3: Override
+
+**Input:** Parsed `ConfigBatch` plus optional validator reference.
+
+**Output:** ConfigBatch with overrides applied to payloads.
+
+**Responsibilities:**
+
+- Only active sources are amended.
+- When the validator (dataclass or Pydantic model) defines `__env_overrides__`, traverse the payload using dot-notation paths derived from the validator hierarchy to apply env vars.
+- If the env var is present, inject it into the payload and record the dotted path → env var name mapping inside `applied_overrides`.
+- Assign `OverrideStatus.NOT_CONFIGURED` when no validator or no mapping exists, `OverrideStatus.MAPPING_DEFINED` whenever a mapping is present (even if no env var applies) and `OverrideStatus.FIELD_NOT_FOUND` when the mapping references a field not present in the validator payload. `stage_error_metadata` captures the missing path.
+- Set `last_visited_stage = PipelineStage.OVERRIDE` and update `stage_status`/`stage_error_metadata`.
+
+**Status Enum (`override.py`):**
+
+```python
+class OverrideStatus(str, Enum):
+  CONFIGURED = "configured"
+  NOT_CONFIGURED = "not-configured"
+  FIELD_ERROR = "field-error"
+```
+
+**Error Metadata Examples:**
+
+- `FIELD_ERROR`: `{"path": "credentials.password", "validator_field": "password"}`
+
+**Example:** When a validator defines nested dataclasses (e.g., `DatabaseConfig` contains `credentials: Credentials`) and only `Credentials` declares `__env_overrides__ = {"password": "APP_DB_PASSWORD"}`, the override stage records `applied_overrides = {"credentials.password": "APP_DB_PASSWORD"}` while `OverrideStatus.CONFIGURED` signals that overrides were considered.
+
+#### Stage 4: Validate
+
+**Input:** Overridden `ConfigBatch` plus validator.
+
+**Output:** Finalized `ConfigBatch` containing source(s) with validated coerced payload(s).
+
+**Responsibilities:**
+
+- Only active sources are validated.
+- When the validator is `None`, mark sources with `ValidateStatus.NO_VALIDATOR` and leave payload as-is.
+- When validator is `list[str]` or `dict[str, type]`, filter/coerce payload accordingly and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
+- When validator is a dataclass or Pydantic model, instantiate it with the payload, replace `payload` with the validated result, or record validation error metadata on failure.
+- Always update `last_visited_stage = PipelineStage.VALIDATE` and record `stage_status`/`stage_error_metadata` for each source.
+
+**Status Enum (`validate.py`):**
+
+```python
+class ValidateStatus(str, Enum):
+  NO_VALIDATOR = "no-validator"
+  VALIDATED = "validated"
+  VALIDATION_ERROR = "validation-error"
+```
+
+**Error Metadata Examples:**
+
+- `VALIDATION_ERROR`: `{"message": "...", "exception": <exc>}`
+
+### Result Extraction (Loader)
+
+- After validation, the loader first checks `ConfigBatch.error_code`. If present, the loader raises immediately without examining sources.
+- Otherwise, it pushes the batch through the pipeline stage by stage until done.
+- After the batch squeezes through the complete pipeline:
+  - When exactly one source is validated without validation error, return its `payload`.
+  - When zero sources succeeds (either never reach the validation stage, or end up with validation errors), or if more than a single source succeeds, raise a `ConfigError` with the batch saved in the exception as an attribute.
+- The batch will provide sufficiant context for the exception to compose a helpful message with hints etc, so we can easily get away with a single error type.
+
+### Error Flow and Diagnostics
+
+- Each source tracks the final stage it reached, allowing errors to be attributed to a specific stage (discover/parse/override/validate).
+- Downstream stages skip inactive sources, keeping diagnostics localized to the first failure.
+- The final `ConfigError` message uses the accumulated `stage_status`/`stage_error_metadata` per source so users see exactly which parser, env var, or validator requirement failed.
 
 ## CI/CD setup
 
