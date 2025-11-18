@@ -26,7 +26,7 @@ def test_validate_no_validator_leaves_payload(tmp_path: Path) -> None:
     """Sources without validators retain their payloads."""
     path = tmp_path / "config.json"
     path.write_text('{"key": "value"}')
-    batch = ConfigBatch(root_path=path)
+    batch = ConfigBatch(root_path=path, section=None, validator=None)
 
     _run_pipeline(batch)
     validate(batch)
@@ -40,7 +40,7 @@ def test_validate_list_validator_filters_keys(tmp_path: Path) -> None:
     """List validators select only the requested keys."""
     path = tmp_path / "config.json"
     path.write_text('{"keep": 1, "drop": 2}')
-    batch = ConfigBatch(root_path=path, validator=["keep"])
+    batch = ConfigBatch(root_path=path, section=None, validator=["keep"])
 
     _run_pipeline(batch)
     validate(batch)
@@ -54,7 +54,9 @@ def test_validate_dict_validator_coerces_values(tmp_path: Path) -> None:
     """Dict validators coerce values to the requested types."""
     path = tmp_path / "config.json"
     path.write_text('{"count": "5", "names": ["a", "b"]}')
-    batch = ConfigBatch(root_path=path, validator={"count": int, "names": list})
+    batch = ConfigBatch(
+        root_path=path, section=None, validator={"count": int, "names": list}
+    )
 
     _run_pipeline(batch)
     validate(batch)
@@ -68,7 +70,9 @@ def test_validate_dict_validator_missing_key(tmp_path: Path) -> None:
     """Missing keys raise validation errors with metadata."""
     path = tmp_path / "config.json"
     path.write_text('{"count": "5"}')
-    batch = ConfigBatch(root_path=path, validator={"count": int, "names": list})
+    batch = ConfigBatch(
+        root_path=path, section=None, validator={"count": int, "names": list}
+    )
 
     _run_pipeline(batch)
     validate(batch)
@@ -89,7 +93,7 @@ def test_validate_dataclass_instantiation(tmp_path: Path) -> None:
     """Dataclass validators instantiate their target types."""
     path = tmp_path / "config.json"
     path.write_text('{"title": "book"}')
-    batch = ConfigBatch(root_path=path, validator=Catalog)
+    batch = ConfigBatch(root_path=path, section=None, validator=Catalog)
 
     _run_pipeline(batch)
     validate(batch)
@@ -103,7 +107,7 @@ def test_validate_dataclass_errors(tmp_path: Path) -> None:
     """Missing dataclass fields surface validation errors."""
     path = tmp_path / "config.json"
     path.write_text("{}")
-    batch = ConfigBatch(root_path=path, validator=Catalog)
+    batch = ConfigBatch(root_path=path, section=None, validator=Catalog)
 
     _run_pipeline(batch)
     validate(batch)
@@ -122,7 +126,7 @@ def test_validate_pydantic_model(tmp_path: Path) -> None:
 
     path = tmp_path / "config.json"
     path.write_text('{"value": "10"}')
-    batch = ConfigBatch(root_path=path, validator=Schema)
+    batch = ConfigBatch(root_path=path, section=None, validator=Schema)
 
     _run_pipeline(batch)
     validate(batch)

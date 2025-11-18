@@ -9,7 +9,7 @@ def _prepare_batch(
     tmp_path: Path, section: str | None = None
 ) -> tuple[ConfigBatch, Path]:
     path = tmp_path / "config.json"
-    batch = ConfigBatch(root_path=path, section=section)
+    batch = ConfigBatch(root_path=path, section=section, validator=None)
     return batch, path
 
 

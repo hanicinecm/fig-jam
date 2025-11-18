@@ -33,7 +33,7 @@ class DatabaseConfig:
 
 def _prepare_batch(tmp_path: Path) -> tuple[ConfigBatch, Path]:
     path = tmp_path / "config.json"
-    batch = ConfigBatch(root_path=path, validator=DatabaseConfig)
+    batch = ConfigBatch(root_path=path, section=None, validator=DatabaseConfig)
     return batch, path
 
 
@@ -79,7 +79,7 @@ def test_override_not_configured_without_model(tmp_path: Path) -> None:
     """Overrides stage marks sources as not configured when no dataclass is used."""
     path = tmp_path / "config.json"
     path.write_text('{"key": "value"}')
-    batch = ConfigBatch(root_path=path, validator=["key"])
+    batch = ConfigBatch(root_path=path, section=None, validator=["key"])
 
     discover(batch)
     parse(batch)

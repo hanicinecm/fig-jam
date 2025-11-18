@@ -7,7 +7,9 @@ from fig_jam.pipeline import BatchErrorCode, ConfigBatch, DiscoveryStatus, disco
 
 def test_discover_reports_missing_path(tmp_path: Path) -> None:
     """Missing paths signal the appropriate batch error code."""
-    batch = ConfigBatch(root_path=tmp_path / "missing")
+    batch = ConfigBatch(
+        root_path=tmp_path / "missing", section=None, validator=None
+    )
     discover(batch)
     assert batch.error_code is BatchErrorCode.PATH_NOT_FOUND
     assert batch.sources == []
@@ -22,7 +24,7 @@ def test_discover_enumerates_supported_configs(tmp_path: Path) -> None:
     (root / "z.ini").write_text("[section]\nkey=value")
     (root / "ignore.txt").write_text("skip")
 
-    batch = ConfigBatch(root_path=root)
+    batch = ConfigBatch(root_path=root, section=None, validator=None)
     discover(batch)
 
     names = [source.path.name for source in batch.sources]
@@ -38,7 +40,7 @@ def test_discover_returns_empty_when_no_supported_files(tmp_path: Path) -> None:
     root.mkdir()
     (root / "notes.txt").write_text("meta")
 
-    batch = ConfigBatch(root_path=root)
+    batch = ConfigBatch(root_path=root, section=None, validator=None)
     discover(batch)
     assert batch.error_code is None
     assert batch.sources == []

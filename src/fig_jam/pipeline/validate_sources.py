@@ -7,12 +7,18 @@ from enum import Enum
 from typing import Any
 
 from fig_jam.pipeline._model import ConfigBatch, ConfigSource, PipelineStage
-from fig_jam.pipeline._pipeline_utils import (
-    get_model_validator_type,
+from fig_jam.pipeline._validators import (
+    is_dataclass_validator,
     is_dict_validator,
     is_list_validator,
+    is_pydantic_validator,
 )
 from fig_jam.pipeline.override_sources import OverridesStatus
+
+try:
+    from pydantic import BaseModel
+except ImportError:  # pragma: no cover - optional dependency
+    BaseModel = None
 
 
 class ValidationStatus(str, Enum):
@@ -109,10 +115,9 @@ def validate(batch: ConfigBatch) -> ConfigBatch:
             source, payload, validator
         ):
             continue
-        model_validator = get_model_validator_type(validator)
-        if model_validator is not None and _handle_model_validator(
-            source, payload, model_validator
-        ):
+        if (
+            is_dataclass_validator(validator) or is_pydantic_validator(validator)
+        ) and _handle_model_validator(source, payload, validator):
             continue
         source.stage_status = ValidationStatus.VALIDATION_ERROR
         source.stage_error_metadata = {"message": "unsupported validator type"}

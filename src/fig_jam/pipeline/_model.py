@@ -13,6 +13,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from fig_jam.pipeline._validators import is_supported_validator
+
 
 class BatchErrorCode(str, Enum):
     """Fatal failure codes that short-circuit the pipeline.
@@ -65,6 +67,11 @@ class ConfigSource:
     stage_status: str | None = None
     stage_error_metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not self.path.exists():
+            message = f"config source path does not exist: {self.path!r}"
+            raise ValueError(message)
+
 
 @dataclass
 class ConfigBatch:
@@ -74,10 +81,30 @@ class ConfigBatch:
     `validator`, the list of *all* (active and rejected) `sources`, and an
     optional terminal `error_code` when discovery cannot produce any candidates
     at all.
+
+    The root path may point to a file or directory. If the root path does not exist,
+    or is not accessible, or is neither a file nor directory, the appropriate
+    `error_code` is set right away.
+    Similarly, if the supplied validator is of an unsupported type, the
+    `error_code` is set to reflect that.
     """
 
     root_path: Path
-    section: str | None = None
-    validator: Any | None = None
+    section: str | None
+    validator: Any | None
     sources: list[ConfigSource] = field(default_factory=list)
     error_code: BatchErrorCode | None = None
+
+    def __post_init__(self) -> None:
+        # Check that the root path exists and is accessible.
+        try:
+            if not self.root_path.exists():
+                self.error_code = BatchErrorCode.PATH_NOT_FOUND
+                return
+        except PermissionError:
+            self.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
+            return
+
+        # Check that the validator is of a supported type.
+        if self.validator is not None and not is_supported_validator(self.validator):
+            self.error_code = BatchErrorCode.INVALID_VALIDATOR_TYPE
