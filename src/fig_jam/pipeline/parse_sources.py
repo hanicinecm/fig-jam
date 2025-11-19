@@ -20,7 +20,7 @@ from fig_jam.pipeline.discover_sources import DiscoveryStatus
 class ParsingStatus(str, Enum):
     """Status codes emitted by the parsing stage."""
 
-    PARSED = "parsed"
+    SUCCESS = "success"
     MISSING_DEPENDENCY_ERROR = "missing-dependency-error"
     DECODING_ERROR = "decoding-error"
     SYNTAX_ERROR = "syntax-error"
@@ -33,7 +33,7 @@ def parse(batch: ConfigBatch) -> ConfigBatch:
     if batch.error_code is not None:
         return batch
     for source in batch.sources:
-        if source.stage_status is not DiscoveryStatus.DISCOVERED:
+        if source.stage_status is not DiscoveryStatus.SUCCESS:
             continue
         source.last_visited_stage = PipelineStage.PARSE
         try:
@@ -91,6 +91,6 @@ def parse(batch: ConfigBatch) -> ConfigBatch:
             source.payload = dict(payload)
         else:
             source.payload = payload
-        source.stage_status = ParsingStatus.PARSED
+        source.stage_status = ParsingStatus.SUCCESS
         source.stage_error_metadata = {}
     return batch

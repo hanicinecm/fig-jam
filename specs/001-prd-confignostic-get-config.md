@@ -385,11 +385,12 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
-  2. **Discovery (`fig_jam.pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects, which will flow through the whole pipeline from now on.
-  3. **Parsing (`fig_jam.pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
-  4. **Override resolution (`fig_jam.pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
-  5. **Validation stage (`fig_jam.pipeline.validate`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each acitive candidate. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures are logged.
-  6. **Result extraction (loader):** Examine the objects passed through the pipeline. If exactly one candidate has valid data, return it. In any other case, the `ConfigError` is raised with all the appropriate context data.
+  2. **Pipeline model instantiation:** Instantiate the pipeline `SourceBatch` object (I/O object for every stage of the pipeline), with all the initial validation (path has valid suffix, validator is correct type, env overrides are well defined, ...)
+  3. **Discovery (`fig_jam.pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects to the batch, which will flow through the whole pipeline from now on.
+  4. **Parsing (`fig_jam.pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
+  5. **Override resolution (`fig_jam.pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
+  6. **Validation stage (`fig_jam.pipeline.validate`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each acitive candidate. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures are logged.
+  7. **Result extraction (loader):** Examine the objects passed through the pipeline. If exactly one candidate has valid data, return it. In any other case, the `ConfigError` is raised with all the appropriate context data.
 - **Environment overrides:**
   - Disabled unless the validator (dataclass or Pydantic model) declares a `__env_overrides__` mapping.
   - `__env_overrides__` maps validator field names to environment variable names (strings). Keys must form a subset of the validator's fields.
@@ -397,27 +398,26 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 - **Error guidance:**
   - The error messages are constucted by the exception itself, based on all the context data also passed to the exception.
 
-## Pipeline Specification
+## Pipeline Data Model
 
 The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics. All public stage functions, along with the `ConfigSource` and `ConfigBatch` models, are re-exported from the `fig_jam.pipeline` package namespace for convenient imports.
-
-### Data Model
 
 **ConfigSource (`fig_jam.pipeline._model`):** Represents a single candidate configuration file flowing through the pipeline.
 
 - `path: Path` — Immutable file path discovered during the discovery stage.
 - `raw_payload: MappingProxyType | None` — Frozen dict from the parser (immutable snapshot of parsed content).
 - `payload: Any | None` — Working payload that evolves through stages; starts as a dict copy of `raw_payload` after parsing and may become a dataclass or Pydantic instance after validation.
-- `applied_overrides: dict[str, str]` — Records which environment variables were applied, keyed by the dotted payload path (e.g., `"credentials.password" -> "APP_DB_PASSWORD"`).
+- `applied_overrides: dict[str, str]` — Records which environment variables were applied, keyed by the dotted payload path (e.g., `"credentials.password" -> "APP_DB_PASSWORD"`). Only set if the values from ENV were *actually plugged* into the payload.
 - `last_visited_stage: PipelineStage | None` — Enum value (`DISCOVER`, `PARSE`, `OVERRIDE`, `VALIDATE`) indicating the last stage this source reached, even if it failed.
 - `stage_status: str | None` — Status code (per-stage enum value) reported by the last visited stage (e.g., `"success"`, `"missing-dependency-error"`).
 - `stage_error_metadata: dict[str, Any]` — Free-form metadata specific to `stage_status`; includes diagnostics such as missing dependency name, exception object, or missing section name.
 
 **ConfigBatch (`fig_jam.pipeline._model`):** Collection of `ConfigSource` objects flowing through the pipeline.
 
-- `root_path: Path` — Original user-provided file or directory path.
+- `root_path: Path` — Original user-provided file or directory path. The suffix must be either empty, or one of the supported config formats, otherwise an error code is set.
 - `section: str | None` — Original user-provided section name.
-- `validator: list | dict[str, type] | dataclass | pydantic.BaseModel | None` — User-provided validator.
+- `validator: list | dict[str, type] | dataclass | pydantic.BaseModel | None` — User-provided validator. Must be supported validator, otherwise an error code is set.
+- `env_overrides: dict[tuple[str, ...], str]` — Unpacked *paths* through the validator's nested structure leading to an ENV_VAR names. Irrespective of if the enviroment variables actually exist or not. Parsed from static analysis of the validator (if dataclass or pydantic model). The overrides mapping on the model classes must be valid (defined for existing attribute names in the model classes), otherwise an appropriate error code is set.
 - `sources: list[ConfigSource]` — List of candidate sources discovered and processed.
 - `error_code: BatchErrorCode | None` — When discovery encounters a transport-level failure (unreadable path or non-file/directory), records the error and short-circuits the loader before further stages.
 
@@ -425,13 +425,12 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 
 ```python
 class BatchErrorCode(str, Enum):
-  PATH_NOT_FOUND = "path-not-found"
-  PATH_NOT_ACCESSIBLE = "path-not-accessible"
-  NOT_FILE_OR_DIRECTORY = "not-file-or-directory"
+  INVALID_PATH = "invalid-path"
   INVALID_VALIDATOR_TYPE = "invalid-validator-type"
+  INVALID_ENV_OVERRIDE = "invalid-env-override"
 ```
 
-### Pipeline Stages
+<!-- ### Pipeline Stages
 
 #### Stage 1: Discover
 
@@ -551,7 +550,7 @@ class ValidationStatus(str, Enum):
 
 **Error Metadata Examples:**
 
-- `VALIDATION_ERROR`: `{"message": "...", "exception": <exc>}`
+- `VALIDATION_ERROR`: `{"message": "...", "exception": <exc>}` -->
 
 ### Result Extraction (Loader)
 

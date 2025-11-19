@@ -1,9 +1,9 @@
 """Discovery stage implementations for fig_jam."""
+# TODO: Clean up this shit
 
 from __future__ import annotations
 
 from enum import Enum
-from pathlib import Path
 
 from fig_jam.parsers import iter_supported_suffixes
 from fig_jam.pipeline._model import (
@@ -17,20 +17,7 @@ from fig_jam.pipeline._model import (
 class DiscoveryStatus(str, Enum):
     """Status codes emitted by the discovery stage."""
 
-    DISCOVERED = "discovered"
-    PATH_NOT_ACCESSIBLE = "path-not-accessible"
-
-
-def _build_inaccessible_source(path: Path) -> ConfigSource:
-    source = object.__new__(ConfigSource)
-    source.path = path
-    source.raw_payload = None
-    source.payload = None
-    source.applied_overrides = {}
-    source.last_visited_stage = PipelineStage.DISCOVER
-    source.stage_status = DiscoveryStatus.PATH_NOT_ACCESSIBLE
-    source.stage_error_metadata = {"message": "permission denied"}
-    return source
+    SUCCESS = "success"
 
 
 def discover(batch: ConfigBatch) -> ConfigBatch:

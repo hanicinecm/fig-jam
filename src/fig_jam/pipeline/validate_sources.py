@@ -19,8 +19,7 @@ from fig_jam.pipeline.override_sources import OverridesStatus
 class ValidationStatus(str, Enum):
     """Status codes emitted by the validation stage."""
 
-    NO_VALIDATOR = "no-validator"
-    VALIDATED = "validated"
+    SUCCESS = "success"
     VALIDATION_ERROR = "validation-error"
 
 
@@ -37,7 +36,7 @@ def _handle_list_validator(
         return True
     filtered = {key: payload[key] for key in validator if key in payload}
     source.payload = filtered
-    source.stage_status = ValidationStatus.VALIDATED
+    source.stage_status = ValidationStatus.SUCCESS
     source.stage_error_metadata = {}
     return True
 
@@ -61,7 +60,7 @@ def _handle_dict_validator(
             source.stage_error_metadata = {"key": key, "exception": error}
             return True
     source.payload = validated
-    source.stage_status = ValidationStatus.VALIDATED
+    source.stage_status = ValidationStatus.SUCCESS
     source.stage_error_metadata = {}
     return True
 
@@ -82,7 +81,7 @@ def _handle_model_validator(
         }
         return True
     source.payload = instance
-    source.stage_status = ValidationStatus.VALIDATED
+    source.stage_status = ValidationStatus.SUCCESS
     source.stage_error_metadata = {}
     return True
 
@@ -93,15 +92,12 @@ def validate(batch: ConfigBatch) -> ConfigBatch:
         return batch
     validator = batch.validator
     for source in batch.sources:
-        if source.stage_status not in {
-            OverridesStatus.CONFIGURED,
-            OverridesStatus.NOT_CONFIGURED,
-        }:
+        if source.stage_status is not OverridesStatus.SUCCESS:
             continue
         source.last_visited_stage = PipelineStage.VALIDATE
         payload = source.payload
         if validator is None:
-            source.stage_status = ValidationStatus.NO_VALIDATOR
+            source.stage_status = ValidationStatus.SUCCESS
             source.stage_error_metadata = {}
             continue
         if is_list_validator(validator) and _handle_list_validator(

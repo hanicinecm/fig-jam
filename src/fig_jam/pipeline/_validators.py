@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import types
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Annotated, Any, Union, get_args, get_origin
 
 try:
@@ -17,30 +17,30 @@ UnionType = getattr(types, "UnionType", None)
 
 
 def is_list_validator(validator: Any) -> bool:
-    """Check whether the validator describes a list of string keys.
+    """Check whether the validator describes an iterable of string keys.
 
     Args:
         validator: Validator supplied by the user.
 
     Returns:
-        `True` when the validator is a list of strings, otherwise `False`.
+        `True` when the validator is an iterable of strings, otherwise `False`.
     """
-    return isinstance(validator, list) and all(
+    return isinstance(validator, Iterable) and all(
         isinstance(item, str) for item in validator
     )
 
 
 def is_dict_validator(validator: Any) -> bool:
-    """Check whether the validator describes a dict of key→type pairs.
+    """Check whether the validator describes a mapping of key→type pairs.
 
     Args:
         validator: Validator supplied by the user.
 
     Returns:
-        `True` when the validator is a dict that maps strings to types,
+        `True` when the validator is a mapping that maps strings to types,
         otherwise `False`.
     """
-    return isinstance(validator, dict) and all(
+    return isinstance(validator, Mapping) and all(
         isinstance(key, str) and isinstance(value, type)
         for key, value in validator.items()
     )
@@ -154,3 +154,49 @@ def resolve_model_type(hint: Any) -> type | None:
             if nested is not None:
                 return nested
     return None
+
+
+def collect_env_override_paths(validator: type | None) -> dict[tuple[str, ...], str]:
+    """Collect override mappings for a model validator hierarchy.
+
+    Only acts on dataclass or Pydantic model types, otherwise returns an empty dict.
+
+    Args:
+        validator: Validator type that may declare `__env_overrides__`.
+
+    Returns:
+        Mapping from dotted validator field paths to environment variable names.
+
+    Raises:
+        AttributeError: When the validator's `__env_overrides__` mapping
+            contains invalid field names.
+    """
+    overrides: dict[tuple[str, ...], str] = {}
+    if validator is None or not (
+        is_dataclass_validator(validator) or is_pydantic_validator(validator)
+    ):
+        return overrides
+
+    visited: set[type] = set()
+
+    def _walk(current_type: type, prefix: tuple[str, ...]) -> None:
+        if current_type in visited:
+            return
+        visited.add(current_type)
+        mapping = getattr(current_type, "__env_overrides__", None)
+        if isinstance(mapping, dict):
+            for field_name, env_var in mapping.items():
+                if field_name not in {
+                    name for name, _ in iter_model_fields(current_type)
+                }:
+                    msg = f"invalid field name in __env_overrides__: {field_name!r}"
+                    raise AttributeError(msg)
+                overrides[(*prefix, field_name)] = env_var
+        for field_name, annotation in iter_model_fields(current_type):
+            nested = resolve_model_type(annotation)
+            if nested is None:
+                continue
+            _walk(nested, (*prefix, field_name))
+
+    _walk(validator, ())
+    return overrides

@@ -3,6 +3,10 @@
 Each model captures the minimal state and diagnostics required by the
 discovery, parsing, override, and validation stages as they examine candidate
 config files.
+
+TODO: Figure how to deal with no valid sources in the case of a model validator with
+    fully optional fields. An empty fallback source, which would pass through
+    override and validation (only if no standard sources make it through)?
 """
 
 from __future__ import annotations
@@ -13,7 +17,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from fig_jam.pipeline._validators import is_supported_validator
+from fig_jam.parsers import iter_supported_suffixes
+from fig_jam.pipeline._validators import (
+    collect_env_override_paths,
+    is_supported_validator,
+)
 
 
 class BatchErrorCode(str, Enum):
@@ -24,10 +32,9 @@ class BatchErrorCode(str, Enum):
     targets, or unsupported validator types supplied up front.
     """
 
-    PATH_NOT_FOUND = "path-not-found"
-    PATH_NOT_ACCESSIBLE = "path-not-accessible"
-    NOT_FILE_OR_DIRECTORY = "not-file-or-directory"
+    INVALID_PATH = "invalid-path"
     INVALID_VALIDATOR_TYPE = "invalid-validator-type"
+    INVALID_ENV_OVERRIDE = "invalid-env-override"
 
 
 class PipelineStage(str, Enum):
@@ -78,33 +85,42 @@ class ConfigBatch:
     """Wrapper that threads ConfigSource instances through the pipeline stages.
 
     The batch records the user-supplied `root_path`, optional `section`, and
-    `validator`, the list of *all* (active and rejected) `sources`, and an
-    optional terminal `error_code` when discovery cannot produce any candidates
-    at all.
+    `validator`.
 
-    The root path may point to a file or directory. If the root path does not exist,
-    or is not accessible, or is neither a file nor directory, the appropriate
-    `error_code` is set right away.
-    Similarly, if the supplied validator is of an unsupported type, the
-    `error_code` is set to reflect that.
+    The root path existence and type (file vs. directory) is not checked here,
+    but rather in the discovery stage.
+    However, its suffix needs to either be empty (for directories) or match a
+    recognized config format (for files), otherwise an error code is set.
+
+    The `validator` is parsed for the environment override paths here.
+    As an example, if the validator is a dataclass with an attribute `database`, which
+    in turn is another dataclass with defined __env_overrides__ for its field `host`,
+    the `env_overrides` mapping will contain an entry mapping the path
+    `("database", "host")` to the corresponding environment variable name.
+    Validity of the override paths is also checked here, and an error code is set
+    if any paths are invalid.
     """
 
     root_path: Path
     section: str | None
     validator: Any | None
+    env_overrides: dict[tuple[str, ...], str] = field(default_factory=dict)
     sources: list[ConfigSource] = field(default_factory=list)
     error_code: BatchErrorCode | None = None
 
     def __post_init__(self) -> None:
-        # Check that the root path exists and is accessible.
-        try:
-            if not self.root_path.exists():
-                self.error_code = BatchErrorCode.PATH_NOT_FOUND
-                return
-        except PermissionError:
-            self.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
+        # Check that the root path is valid:
+        suffix = self.root_path.suffix.lower()
+        if suffix and suffix not in iter_supported_suffixes():
+            self.error_code = BatchErrorCode.INVALID_PATH
             return
-
         # Check that the validator is of a supported type.
         if self.validator is not None and not is_supported_validator(self.validator):
             self.error_code = BatchErrorCode.INVALID_VALIDATOR_TYPE
+            return
+        # Collect environment override paths from the validator.
+        try:
+            self.env_overrides = collect_env_override_paths(self.validator)
+        except AttributeError:
+            self.error_code = BatchErrorCode.INVALID_ENV_OVERRIDE
+            return
