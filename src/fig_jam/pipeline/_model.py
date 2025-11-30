@@ -20,6 +20,7 @@ from typing import Any
 from fig_jam.parsers import iter_supported_suffixes
 from fig_jam.pipeline._validators import (
     collect_env_override_paths,
+    is_list_validator,
     is_supported_validator,
 )
 
@@ -28,13 +29,15 @@ class BatchErrorCode(str, Enum):
     """Fatal failure codes that short-circuit the pipeline.
 
     These errors represent problems that prevent any config file from entering
-    the normal stage flow: missing paths, inaccessible locations, invalid
+    the normal stage flow: invalid targets, or unsupported validator
     targets, or unsupported validator types supplied up front.
     """
 
-    INVALID_PATH = "invalid-path"
+    UNSUPPORTED_FORMAT = "unsupported-format"
+    DIRECTORY_ACCESS_ERROR = "directory-access-error"
     INVALID_VALIDATOR_TYPE = "invalid-validator-type"
     INVALID_ENV_OVERRIDE = "invalid-env-override"
+    INVALID_STRICT_VALUE = "invalid-strict-value"
 
 
 class PipelineStage(str, Enum):
@@ -55,15 +58,15 @@ class PipelineStage(str, Enum):
 class ConfigSource:
     """Metadata for a single configuration candidate inside the pipeline.
 
-    Each configuration source corresponds to a *single existing file* on disk.
-    The sources are instantiated in the discovery stage when files are found.
+    Each configuration source corresponds to a *single file path* which may or
+    may not exist on disk. Sources are instantiated in the discovery stage.
 
-    As the instance progresses through the pipeline, a it tracks the file `path`, the
-    immutable `raw_payload` produced by parsing (after section extraction), and the
-    mutable `payload` that is transformed by overrides and validation.
+    As the instance progresses through the pipeline, it tracks the file `path`,
+    the immutable `raw_payload` produced by parsing (after section extraction),
+    and the mutable `payload` that is transformed by overrides and validation.
     Diagnostics such as the last visited `PipelineStage`, the emitted status,
-    error metadata, and any `applied_overrides` live on this object so the loader can
-    explain why a candidate succeeded or failed.
+    error metadata, and any `applied_overrides` live on this object so the
+    loader can explain why a candidate succeeded or failed.
     """
 
     path: Path
@@ -73,11 +76,6 @@ class ConfigSource:
     last_visited_stage: PipelineStage | None = None
     stage_status: str | None = None
     stage_error_metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.path.exists():
-            message = f"config source path does not exist: {self.path!r}"
-            raise ValueError(message)
 
 
 @dataclass
@@ -104,19 +102,35 @@ class ConfigBatch:
     root_path: Path
     section: str | None
     validator: Any | None
+    strict: bool = True
     env_overrides: dict[tuple[str, ...], str] = field(default_factory=dict)
     sources: list[ConfigSource] = field(default_factory=list)
     error_code: BatchErrorCode | None = None
 
     def __post_init__(self) -> None:
-        # Check that the root path is valid:
+        # Check that the root path has a valid suffix:
         suffix = self.root_path.suffix.lower()
         if suffix and suffix not in iter_supported_suffixes():
-            self.error_code = BatchErrorCode.INVALID_PATH
+            self.error_code = BatchErrorCode.UNSUPPORTED_FORMAT
             return
+        # Check that directory root paths are accessible:
+        if not suffix and self.root_path.is_dir():
+            try:
+                next(self.root_path.iterdir(), None)
+            except PermissionError:
+                self.error_code = BatchErrorCode.DIRECTORY_ACCESS_ERROR
+                return
         # Check that the validator is of a supported type.
         if self.validator is not None and not is_supported_validator(self.validator):
             self.error_code = BatchErrorCode.INVALID_VALIDATOR_TYPE
+            return
+        # Check that strict=False is only used with list validators or no validator.
+        if (
+            not self.strict
+            and self.validator is not None
+            and not is_list_validator(self.validator)
+        ):
+            self.error_code = BatchErrorCode.INVALID_STRICT_VALUE
             return
         # Collect environment override paths from the validator.
         try:

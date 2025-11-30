@@ -13,14 +13,15 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Functions
 
-- **`get_config(path: Path | None = None, section: str | None = None, validator: Any = None) -> Any`**
+- **`get_config(path: Path | None = None, section: str | None = None, validator: Any = None, strict: bool = True) -> Any`**
   - Main entry point for configuration loading.
   - `path`: Optional path to a config file or directory. If `None`, searches user's home directory.
   - `section`: Optional top-level key to extract from config before validation.
   - `validator`: Optional schema for validation (Pydantic model, dataclass, `dict[str, type]`, or `list[str]`).
+  - `strict`: Controls whether extra keys (not declared in the validator) are filtered out. Defaults to `True`. Only applicable to `list[str]` validators; must be `True` for `dict[str, type]`, dataclass, and Pydantic validators (raises `ConfigError` otherwise). Has no effect when `validator` is `None`.
   - Returns validated configuration data in a format determined by the validator type:
-    - `list[str]`: Returns a dict containing only the keys specified in the list (no type coercion).
-    - `dict[str, type]`: Returns a dict containing only the keys specified in the dict, with values coerced to the specified types.
+    - `list[str]`: Validates that all specified keys exist. If `strict=True`, returns a dict containing only those keys. If `strict=False`, returns the full payload with all keys.
+    - `dict[str, type]`: Validates that all specified keys exist and coerces values to the declared types. Returns a dict containing only those keys.
     - Dataclass or Pydantic model: Returns an instance of the validator type with coerced values. Validators may define a `__env_overrides__` mapping that the override stage uses to pull values from environment variables prior to validation.
     - `None` (no validator): Returns the raw parsed data as a dict with types determined by the parser.
 
@@ -59,6 +60,8 @@ modular and explicit:
 
 ```text
 src/fig_jam
+├── __init__.py
+├── loader.py
 ├── parsers/
 │   ├── __init__.py
 │   ├── _parsers_errors.py
@@ -74,9 +77,13 @@ src/fig_jam
     └── validate_sources.py
 ```
 
+- The `loader` module implements the public `get_config` function and `ConfigError`
+  exception. It instantiates a `ConfigBatch`, pushes it through the pipeline stages,
+  and extracts the final result or raises with diagnostics. The public names are
+  re-exported from the package-level `__init__.py`.
 - The `parsers` package owns the registry of parsers defined for each suffix and
   exposes helpers for normalization, error handling, and supported suffix lookups.
-- The `pipeline` package currently contains the state models (`_model`), validator
+- The `pipeline` package contains the state models (`_model`), validator
   introspection helpers (`_validators`), and the four stage implementations.
   Each stage module exposes one public function that accepts a `ConfigBatch` and
   returns the updated batch. Stages immediately return if `batch.error_code` is
@@ -417,142 +424,100 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 - `root_path: Path` — Original user-provided file or directory path. The suffix must be either empty, or one of the supported config formats, otherwise an error code is set.
 - `section: str | None` — Original user-provided section name.
 - `validator: list | dict[str, type] | dataclass | pydantic.BaseModel | None` — User-provided validator. Must be supported validator, otherwise an error code is set.
-- `env_overrides: dict[tuple[str, ...], str]` — Unpacked *paths* through the validator's nested structure leading to an ENV_VAR names. Irrespective of if the enviroment variables actually exist or not. Parsed from static analysis of the validator (if dataclass or pydantic model). The overrides mapping on the model classes must be valid (defined for existing attribute names in the model classes), otherwise an appropriate error code is set.
+- `strict: bool` — Whether to filter extra keys from the output. Must be `True` for `dict[str, type]`, dataclass, and Pydantic validators, otherwise an error code is set.
+- `env_overrides: dict[tuple[str, ...], str]` — All override mappings declared on the validator (if dataclass or Pydantic model with `__env_overrides__`). Maps field paths (tuples of attribute names) to environment variable names. Collected at batch initialization by walking the validator's nested structure. The declared field names must be valid (exist on the validator), otherwise a batch error code is set.
 - `sources: list[ConfigSource]` — List of candidate sources discovered and processed.
-- `error_code: BatchErrorCode | None` — When discovery encounters a transport-level failure (unreadable path or non-file/directory), records the error and short-circuits the loader before further stages.
+- `error_code: BatchErrorCode | None` — When discovery encounters a high-level failure (unsupported types, etc), records the error and short-circuits the loader before further stages.
 
 **BatchErrorCode (`fig_jam.pipeline._model`):**
 
-```python
-class BatchErrorCode(str, Enum):
-  INVALID_PATH = "invalid-path"
-  INVALID_VALIDATOR_TYPE = "invalid-validator-type"
-  INVALID_ENV_OVERRIDE = "invalid-env-override"
-```
+- Enum with some high-level error codes.
 
-<!-- ### Pipeline Stages
+## Pipeline Stages
 
-#### Stage 1: Discover
+The pipeline consists of four sequential stages. Each stage receives a `ConfigBatch`,
+processes its sources, and returns the updated batch. Stages skip processing when
+`batch.error_code` is already set, allowing early termination for fatal input errors.
 
-**Input:** `root_path` (file or directory).
+Each `ConfigSource` tracks its progress via `last_visited_stage` and `stage_status`.
+Sources that fail at any stage are marked with an error status and passed through
+subsequent stages unchanged, preserving diagnostics for the final error message.
 
-**Output:** `ConfigBatch` either populated with candidate sources or short-circuited via `error_code` when resolution fails.
+### Discovery Stage (`discover_sources.py`)
 
-**Responsibilities:**
+The discovery stage populates `batch.sources` based on the `root_path`:
 
-- If `root_path` is a file: create one `ConfigSource` for that path (even if the file/directory does not exist, in such case, an empty batch will be instantiated).
-- If `root_path` is a directory: enumerate top-level files matching supported suffixes (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`), sorted deterministically, and create one `ConfigSource` per file.
-- If `root_path` cannot be resolved because it does not exist, set `ConfigBatch.error_code` to `BatchErrorCode.PATH_NOT_FOUND`.
-- If `root_path` cannot be resolved due to access restrictions or because it is neither a file nor a directory, set `ConfigBatch.error_code` to the appropriate `BatchErrorCode`.
-- Set `last_visited_stage = PipelineStage.DISCOVER` on all sources that exist.
-- Successful sources set `stage_status = DiscoverStatus.DISCOVERED` and empty `stage_error_metadata`.
-- If `root_path` is a directory that exists but contains no supported config files, the batch is instantiated with an empty `sources` list and flows through the pipeline unchanged.
+- **File path:** If `root_path` points to an existing file with a supported suffix,
+  a single `ConfigSource` is created for that file.
+- **Directory path:** If `root_path` points to an existing directory, the stage
+  enumerates top-level files with supported suffixes and creates a `ConfigSource`
+  for each. If no supported files are found, `sources` remains empty and the
+  batch continues through the pipeline—the loader handles this at the end.
+- **Non-existent path:** Sets a batch-level error code and returns immediately,
+  short-circuiting the pipeline.
 
-**Status Enum (`discover.py`):**
+Discovery does not read file contents—it only identifies candidates for parsing.
 
-```python
-class DiscoveryStatus(str, Enum):
-  DISCOVERED = "discovered"
-  PATH_NOT_ACCESSIBLE = "path-not-accessible"
-```
+### Parsing Stage (`parse_sources.py`)
 
-**Error Metadata Examples:**
+The parsing stage invokes the appropriate parser for each discovered source:
 
-- `PATH_NOT_ACCESSIBLE`: `{"path": str(path), "reason": "permission denied"}`
+- Selects the parser from the registry based on the file suffix.
+- Reads, decodes, and parses the file contents into a mapping.
+- If `batch.section` is specified, extracts the named top-level key from the
+  parsed mapping; sources missing the section are marked with an error.
+- Stores the full parsed result in `raw_payload` (immutable) and the working
+  data (possibly section-extracted) in `payload`.
 
-#### Stage 2: Parse
+Parser errors (missing dependencies, decoding failures, syntax errors, type
+mismatches) are captured in `stage_status` and `stage_error_metadata` so the
+loader can report actionable diagnostics. File access errors (e.g., permission
+denied) are also recorded as parsing errors since this stage performs the
+actual file read.
 
-**Input:** `ConfigBatch` with discovered sources (only active sources are processed).
+### Override Stage (`override_sources.py`)
 
-**Output:** `ConfigBatch` with parsed payloads and recorded parse statuses.
+The override stage applies environment variable substitutions to active sources:
 
-**Responsibilities:**
+- Reads `batch.env_overrides`, which contains all declared override mappings
+  from the validator (collected at batch initialization).
+- For each declared override, checks whether the corresponding environment
+  variable is set; if so, inserts or replaces the value in `payload` at the
+  specified nested location.
+- Records applied overrides in `source.applied_overrides` for diagnostics
+  (only overrides where the env var existed and was actually applied).
 
-- For each active source: determine parser by suffix; if dependency missing, record error status/metadata.
-- Attempt decoding (UTF-8 first, fallbacks configured globally); on decoding failure, record metadata that includes `attempted_encodings`.
-- Invoke parser to convert text to dict; ensure the parser result is a mapping, otherwise record type error.
-- On success, populate both `raw_payload` (as `MappingProxyType`) and `payload` (as mutable dict copy).
-- When `section` is provided, extract the top-level key from `payload` and treat it as the new payload; missing section triggers `MISSING_SECTION_ERROR`.
-- Set `last_visited_stage = PipelineStage.PARSE` on each processed source and assign per-source `stage_status`/`stage_error_metadata`.
+Sources without a validator that declares `__env_overrides__` pass through
+unchanged. Missing environment variables leave parsed values intact.
 
-**Status Enum (`parse.py`):**
+### Validation Stage (`validate_sources.py`)
 
-```python
-class ParsingStatus(str, Enum):
-  PARSED = "parsed"
-  MISSING_DEPENDENCY_ERROR = "missing-dependency-error"
-  DECODING_ERROR = "decoding-error"
-  SYNTAX_ERROR = "syntax-error"
-  TYPE_ERROR = "type-error"
-  MISSING_SECTION_ERROR = "missing-section-error"
-```
+The validation stage applies the user-provided validator to each active source:
 
-**Error Metadata Examples:**
+- **`None`:** No validation; the payload passes through as-is. `strict` has no effect.
+- **`list[str]`:** Validates that all specified keys exist in the payload; missing
+  keys are recorded as errors (all missing keys are collected, not just the first).
+  If `strict=True`, filters the payload to include only those keys. If `strict=False`,
+  returns the full payload.
+- **`dict[str, type]`:** Validates that all specified keys exist and coerces each
+  value to the declared type. Missing keys are collected and reported together.
+  Coercion failures are also collected and reported together. Boolean coercion
+  has special handling: string values `"false"`, `"False"`, `"FALSE"`, and `"0"`
+  are treated as `False`; all other non-empty strings are `True`. Returns only
+  the declared keys. Requires `strict=True`.
+- **Dataclass:** Coerces payload values to match the dataclass field types before
+  instantiation (same coercion logic as `dict[str, type]`, including boolean
+  handling). Missing required fields and coercion failures are collected and
+  reported. Requires `strict=True`.
+- **Pydantic model:** Instantiates the model with the payload as keyword arguments;
+  Pydantic handles its own type coercion and validation internally. Validation
+  errors are captured. Requires `strict=True`.
 
-- `MISSING_DEPENDENCY_ERROR`: `{"dependency": "pyyaml", "hint": "uv add pyyaml"}`
-- `DECODING_ERROR`: `{"attempted_encodings": ["utf-8", "latin-1"], "reason": "..."}`
-- `SYNTAX_ERROR`: `{"message": "Invalid YAML", "line": 5, "column": 10, "exception": <exc>}`
-- `TYPE_ERROR`: `{"expected": "mapping", "actual": "list"}`
-- `MISSING_SECTION_ERROR`: `{"section": "database", "available_keys": ["logging"]}`
+Successful sources have their `payload` replaced with the validated/coerced
+result (a filtered dict or model instance). Failed sources retain error metadata
+for downstream reporting.
 
-#### Stage 3: Override
-
-**Input:** Parsed `ConfigBatch` plus optional validator reference.
-
-**Output:** ConfigBatch with overrides applied to payloads.
-
-**Responsibilities:**
-
-- Only active sources are amended.
-- When the validator (dataclass or Pydantic model) defines `__env_overrides__`, traverse the payload using dot-notation paths derived from the validator hierarchy to apply env vars. The `__env_overrides__` mapping always uses local field names of that validator type (never dotted paths); dotted paths such as `"credentials.password"` are only used for the `applied_overrides` keys stored on `ConfigSource`.
-- If the env var is present, inject it into the payload and record the dotted path → env var name mapping inside `applied_overrides`.
-- Assign `OverrideStatus.NOT_CONFIGURED` when no validator or no mapping exists, `OverrideStatus.CONFIGURED` whenever a mapping is present and processed (even if no env var applies) and `OverrideStatus.FIELD_ERROR` when the mapping references a field not present in the validator payload. `stage_error_metadata` captures the missing path.
-- Set `last_visited_stage = PipelineStage.OVERRIDE` and update `stage_status`/`stage_error_metadata`.
-
-**Status Enum (`override.py`):**
-
-```python
-class OverridesStatus(str, Enum):
-  CONFIGURED = "configured"
-  NOT_CONFIGURED = "not-configured"
-  FIELD_ERROR = "field-error"
-```
-
-**Error Metadata Examples:**
-
-- `FIELD_ERROR`: `{"path": "credentials.password", "validator_field": "password"}`
-
-**Example:** When a validator defines nested dataclasses (e.g., `DatabaseConfig` contains `credentials: Credentials`) and only `Credentials` declares `__env_overrides__ = {"password": "APP_DB_PASSWORD"}`, the override stage records `applied_overrides = {"credentials.password": "APP_DB_PASSWORD"}` while `OverrideStatus.CONFIGURED` signals that overrides were considered.
-
-#### Stage 4: Validate
-
-**Input:** Overridden `ConfigBatch` plus validator.
-
-**Output:** Finalized `ConfigBatch` containing source(s) with validated coerced payload(s).
-
-**Responsibilities:**
-
-- Only active sources are validated.
-- When the validator is `None`, mark sources with `ValidateStatus.NO_VALIDATOR` and leave payload as-is.
-- When validator is `list[str]`, filter payload to the listed keys without any type coercion and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
-- When validator is `dict[str, type]`, it must always be a mapping from `str` to a concrete type. Filter payload to the listed keys, coercing values to the declared types (including collections such as `list`, where element types are not enforced and depend entirely on the config content and parser), and set status to `VALIDATED` or `VALIDATION_ERROR` as needed.
-- When validator is a dataclass or Pydantic model type, instantiate it with the payload, replace `payload` with the validated result, or record validation error metadata on failure. The `ConfigBatch.validator` attribute always holds the validator type, not an instance.
-- Always update `last_visited_stage = PipelineStage.VALIDATE` and record `stage_status`/`stage_error_metadata` for each source.
-
-**Status Enum (`validate.py`):**
-
-```python
-class ValidationStatus(str, Enum):
-  NO_VALIDATOR = "no-validator"
-  VALIDATED = "validated"
-  VALIDATION_ERROR = "validation-error"
-```
-
-**Error Metadata Examples:**
-
-- `VALIDATION_ERROR`: `{"message": "...", "exception": <exc>}` -->
-
-### Result Extraction (Loader)
+## Result Extraction (Loader)
 
 - After validation, the loader first checks `ConfigBatch.error_code`. If present, the loader raises immediately without examining sources.
 - Otherwise, it pushes the batch through the pipeline stage by stage until done.

@@ -1,13 +1,12 @@
-"""Discovery stage implementations for fig_jam."""
-# TODO: Clean up this shit
+"""Discovery stage implementation."""
 
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 
 from fig_jam.parsers import iter_supported_suffixes
 from fig_jam.pipeline._model import (
-    BatchErrorCode,
     ConfigBatch,
     ConfigSource,
     PipelineStage,
@@ -18,63 +17,49 @@ class DiscoveryStatus(str, Enum):
     """Status codes emitted by the discovery stage."""
 
     SUCCESS = "success"
+    PATH_NOT_FOUND_ERROR = "path-not-found-error"
 
 
 def discover(batch: ConfigBatch) -> ConfigBatch:
-    """Populate batch sources after inspecting the provided root path."""
+    """Populate batch sources after inspecting the provided root path.
+
+    If the root path has a suffix (i.e., it's a file path), a single source is
+    created for it. If the file doesn't exist, the source is marked with
+    PATH_NOT_FOUND status.
+
+    If the root path has no suffix (i.e., it's a directory), the directory is
+    scanned for files with supported config formats. If the directory doesn't
+    exist or contains no valid config files, the sources list stays empty.
+    """
     if batch.error_code is not None:
         return batch
-    path = batch.root_path
-    try:
-        exists = path.exists()
-    except PermissionError:
-        batch.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
-        return batch
-    if not exists:
-        batch.error_code = BatchErrorCode.PATH_NOT_FOUND
-        return batch
 
-    sources: list[ConfigSource] = []
-    try:
-        is_file = path.is_file()
-    except PermissionError:
-        batch.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
-        return batch
+    root_path = batch.root_path
+    suffix = root_path.suffix.lower()
 
-    if is_file:
-        try:
-            sources = [ConfigSource(path=path)]
-        except PermissionError:
-            batch.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
-            return batch
-    elif path.is_dir():
-        try:
-            entries_candidates = sorted(path.iterdir(), key=lambda item: item.name)
-        except PermissionError:
-            batch.error_code = BatchErrorCode.PATH_NOT_ACCESSIBLE
-            return batch
-        suffixes = tuple(sorted(iter_supported_suffixes()))
-        for entry in entries_candidates:
-            try:
-                if not entry.is_file():
-                    continue
-            except PermissionError:
-                sources.append(_build_inaccessible_source(entry))
-                continue
-            if entry.suffix not in suffixes:
-                continue
-            try:
-                sources.append(ConfigSource(path=entry))
-            except PermissionError:
-                sources.append(_build_inaccessible_source(entry))
-    else:
-        batch.error_code = BatchErrorCode.NOT_FILE_OR_DIRECTORY
-        return batch
+    # Collect candidate paths
+    paths: list[Path] = []
+    if suffix:
+        # Root path is a file - include it even if it doesn't exist
+        paths.append(root_path)
+    elif root_path.is_dir():
+        # Root path is a directory - collect existing config files
+        supported = set(iter_supported_suffixes())
+        paths.extend(
+            child
+            for child in root_path.iterdir()
+            if child.is_file() and child.suffix.lower() in supported
+        )
 
-    batch.sources = sources
-    for source in batch.sources:
-        if source.stage_status is None:
-            source.last_visited_stage = PipelineStage.DISCOVER
-            source.stage_status = DiscoveryStatus.DISCOVERED
-            source.stage_error_metadata = {}
+    # Create sources from collected paths
+    for path in paths:
+        source = ConfigSource(path=path)
+        source.last_visited_stage = PipelineStage.DISCOVER
+        source.stage_error_metadata = {}
+        if path.exists():
+            source.stage_status = DiscoveryStatus.SUCCESS
+        else:
+            source.stage_status = DiscoveryStatus.PATH_NOT_FOUND_ERROR
+        batch.sources.append(source)
+
     return batch
