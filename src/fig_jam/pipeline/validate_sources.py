@@ -80,6 +80,8 @@ def _coerce_to_bool(value: Any) -> bool:
         The boolean interpretation of the value.
     """
     if isinstance(value, str):
+        if not value:
+            return False
         falsy_strings = {"false", "False", "FALSE", "0"}
         return value not in falsy_strings
     return bool(value)

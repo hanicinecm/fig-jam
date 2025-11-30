@@ -447,14 +447,13 @@ subsequent stages unchanged, preserving diagnostics for the final error message.
 
 The discovery stage populates `batch.sources` based on the `root_path`:
 
-- **File path:** If `root_path` points to an existing file with a supported suffix,
-  a single `ConfigSource` is created for that file.
-- **Directory path:** If `root_path` points to an existing directory, the stage
-  enumerates top-level files with supported suffixes and creates a `ConfigSource`
-  for each. If no supported files are found, `sources` remains empty and the
-  batch continues through the pipeline—the loader handles this at the end.
-- **Non-existent path:** Sets a batch-level error code and returns immediately,
-  short-circuiting the pipeline.
+- **File path:** When `root_path` carries a suffix (file-like), discovery creates a
+  single `ConfigSource` regardless of whether the path exists. Existing files are
+  marked `success`; missing files are marked `PATH_NOT_FOUND_ERROR`.
+- **Directory path:** When `root_path` has no suffix, discovery treats it as a
+  directory and iterates its immediate children, adding sources for existing files
+  whose suffixes are supported. If the directory is missing or no matching files are
+  found, the batch exits the stage with an empty `sources` list.
 
 Discovery does not read file contents—it only identifies candidates for parsing.
 
