@@ -409,9 +409,9 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics. All public stage functions, along with the `ConfigSource` and `ConfigBatch` models, are re-exported from the `fig_jam.pipeline` package namespace for convenient imports.
 
-**ConfigSource (`fig_jam.pipeline._model`):** Represents a single candidate configuration file flowing through the pipeline.
+**ConfigSource (`fig_jam.pipeline._model`):** Represents a single candidate configuration file or path flowing through the pipeline. A `ConfigSource` may wrap a path that does not exist on disk (for example, to record discovery or access errors), as well as existing files.
 
-- `path: Path` — Immutable file path discovered during the discovery stage.
+- `path: Path` — Immutable file path discovered during the discovery stage. May refer to a non-existent file or directory.
 - `raw_payload: MappingProxyType | None` — Frozen dict from the parser (immutable snapshot of parsed content).
 - `payload: Any | None` — Working payload that evolves through stages; starts as a dict copy of `raw_payload` after parsing and may become a dataclass or Pydantic instance after validation.
 - `applied_overrides: dict[str, str]` — Records which environment variables were applied, keyed by the dotted payload path (e.g., `"credentials.password" -> "APP_DB_PASSWORD"`). Only set if the values from ENV were *actually plugged* into the payload.
