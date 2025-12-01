@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import typing
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any
@@ -127,10 +128,35 @@ def _handle_dataclass_validator(
     """
     coerced: dict[str, object] = {}
     coercion_errors: dict[str, Exception] = {}
+    resolved_hints = typing.get_type_hints(dataclass_type)
     for field in dataclasses.fields(dataclass_type):
         if field.name not in payload:
             continue  # Let dataclass handle missing (uses default or raises)
-        value, error = _coerce_value(payload[field.name], field.type)  # type: ignore[arg-type]
+        expected_type = resolved_hints.get(field.name, field.type)
+        nested_value = payload[field.name]
+        if dataclasses.is_dataclass(expected_type):
+            if not isinstance(nested_value, Mapping):
+                coercion_errors[field.name] = TypeError(
+                    f"expected mapping for nested dataclass '{field.name}'"
+                )
+                continue
+            try:
+                coerced[field.name] = expected_type(**nested_value)
+            except Exception as error:  # noqa: BLE001
+                coercion_errors[field.name] = error
+            continue
+        if is_pydantic_validator(expected_type):
+            if not isinstance(nested_value, Mapping):
+                coercion_errors[field.name] = TypeError(
+                    f"expected mapping for nested model '{field.name}'"
+                )
+                continue
+            try:
+                coerced[field.name] = expected_type(**nested_value)
+            except (TypeError, ValueError) as error:
+                coercion_errors[field.name] = error
+            continue
+        value, error = _coerce_value(nested_value, expected_type)  # type: ignore[arg-type]
         if error is not None:
             coercion_errors[field.name] = error
         else:

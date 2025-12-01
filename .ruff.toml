@@ -69,5 +69,7 @@ lint.pylint.max-args = 8
 lint.per-file-ignores = {"tests/*" = [
     "S101",    # Bandit - Use of assert detected.
     "D103",    # Pydocstyle - Missing docstring in public function
-    "SLF001"   # Flake8-self - Private member accessed
+    "SLF001",   # Flake8-self - Private member accessed
+    "ANN001",
+    "ANN201"
 ]}

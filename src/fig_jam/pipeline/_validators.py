@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import types
 from collections.abc import Iterable, Iterator, Mapping
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 try:
     from pydantic import BaseModel
@@ -25,8 +25,10 @@ def is_list_validator(validator: Any) -> bool:
     Returns:
         `True` when the validator is an iterable of strings, otherwise `False`.
     """
-    return isinstance(validator, Iterable) and all(
-        isinstance(item, str) for item in validator
+    return (
+        not isinstance(validator, Mapping)
+        and isinstance(validator, Iterable)
+        and all(isinstance(item, str) for item in validator)
     )
 
 
@@ -106,19 +108,26 @@ def iter_model_fields(model_type: type) -> Iterator[tuple[str, Any]]:
         TypeError: When the provided model type is not supported.
     """
     if is_dataclass_validator(model_type):
+        hints = get_type_hints(model_type)
         for field in dataclasses.fields(model_type):
-            yield field.name, field.type
+            yield field.name, hints.get(field.name, field.type)
         return
     if is_pydantic_validator(model_type):
         model_fields = getattr(model_type, "model_fields", None)
         if model_fields is not None:
             for name, info in model_fields.items():
                 annotation = getattr(info, "annotation", None)
+                if _is_pydantic_undefined(annotation):
+                    annotation = None
+                if annotation is None:
+                    annotation = getattr(model_type, "__annotations__", {}).get(name)
                 yield name, annotation
             return
         legacy_fields = getattr(model_type, "__fields__", {})
         for name, info in legacy_fields.items():
             annotation = getattr(info, "annotation", None)
+            if _is_pydantic_undefined(annotation):
+                annotation = None
             yield name, annotation
 
     message = f"unsupported model type: {model_type!r}"
@@ -154,6 +163,14 @@ def resolve_model_type(hint: Any) -> type | None:
             if nested is not None:
                 return nested
     return None
+
+
+def _is_pydantic_undefined(annotation: Any) -> bool:
+    """Return True when annotation represents Pydantic's undefined sentinel."""
+    if annotation is None:
+        return False
+    name = getattr(annotation, "__name__", "") or annotation.__class__.__name__
+    return "PydanticUndefined" in name
 
 
 def collect_env_override_paths(validator: type | None) -> dict[tuple[str, ...], str]:
