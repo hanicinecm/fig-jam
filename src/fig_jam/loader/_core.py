@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from fig_jam.pipeline import (
 
 
 def get_config(
-    path: Path | None = None,
+    path: os.PathLike[str] | str | None = None,
     section: str | None = None,
     *,
     validator: Any | None = None,
@@ -41,7 +42,7 @@ def get_config(
         ConfigError: When discovery, parsing, overrides, or validation fail to
             yield exactly one valid configuration source.
     """
-    root_path = path if path is not None else Path.home()
+    root_path = Path(path) if path is not None else Path.home()
     batch = ConfigBatch(
         root_path=root_path,
         section=section,
