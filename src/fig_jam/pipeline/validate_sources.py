@@ -134,7 +134,7 @@ def _handle_dataclass_validator(
             continue  # Let dataclass handle missing (uses default or raises)
         expected_type = resolved_hints.get(field.name, field.type)
         nested_value = payload[field.name]
-        if dataclasses.is_dataclass(expected_type):
+        if is_dataclass_validator(expected_type):
             if not isinstance(nested_value, Mapping):
                 coercion_errors[field.name] = TypeError(
                     f"expected mapping for nested dataclass '{field.name}'"
