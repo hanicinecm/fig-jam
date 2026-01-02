@@ -1,6 +1,6 @@
 [project]
 name = "fig-jam"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Agnostic fonfig manager"
 readme = "README.md"
 authors = [
