@@ -41,6 +41,11 @@ def get_config(
     Raises:
         ConfigError: When discovery, parsing, overrides, or validation fail to
             yield exactly one valid configuration source.
+
+    TODO: Change `strict` to `extra_keys` with options 'keep', 'drop', 'error'.
+          The `drop` option will be the default, mimicking current behavior.
+          The `keep` option will only be available for list validators.
+          The `error` option will raise an error on extra keys for any validator type.
     """
     root_path = Path(path) if path is not None else Path.home()
     batch = ConfigBatch(

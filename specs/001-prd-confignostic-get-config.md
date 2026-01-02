@@ -13,7 +13,7 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Functions
 
-- **`get_config(path: Path | None = None, section: str | None = None, validator: Any = None, strict: bool = True) -> Any`**
+- **`get_config(path: PathLike | None = None, section: str | None = None, validator: Any = None, strict: bool = True) -> Any`**
   - Main entry point for configuration loading.
   - `path`: Optional path to a config file or directory. If `None`, searches user's home directory.
   - `section`: Optional top-level key to extract from config before validation.
@@ -61,7 +61,7 @@ modular and explicit:
 ```text
 src/fig_jam
 ├── __init__.py
-├── loader.py
+├── loader/
 ├── parsers/
 │   ├── __init__.py
 │   ├── _parsers_errors.py
