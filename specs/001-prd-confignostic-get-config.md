@@ -62,6 +62,11 @@ modular and explicit:
 src/fig_jam
 ├── __init__.py
 ├── loader/
+│   ├── __init__.py
+│   ├── _core.py
+│   ├── _exceptions.py
+│   ├── _messages.py
+│   └── _templates.py
 ├── parsers/
 │   ├── __init__.py
 │   ├── _parsers_errors.py
@@ -77,7 +82,7 @@ src/fig_jam
     └── validate_sources.py
 ```
 
-- The `loader` module implements the public `get_config` function and `ConfigError`
+- The `loader` package implements the public `get_config` function and `ConfigError`
   exception. It instantiates a `ConfigBatch`, pushes it through the pipeline stages,
   and extracts the final result or raises with diagnostics. The public names are
   re-exported from the package-level `__init__.py`.
@@ -378,7 +383,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
   - Developer → omits optional dependencies → loader skips unsupported formats/validators and hints in a raised `ConfigError` that the path (or some paths) were skipped due to a missing dependency, with install instructions when needed. This applies to `yaml` format (requires `pyyaml`) or to `toml` format for older python without `tomllib` (requires `tomli`).
 - **Non-functional requirements:**
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
-  - Compatible with CPython >=3.9; fully typed and mypy/pyright friendly.
+- Compatible with CPython >=3.9; fully typed and mypy/pyright friendly.
   - Linted and formatted with `ruff`.
   - Thread-safe reads; repeated calls must remain side-effect free.
   - Works consistently across macOS, Linux, and Windows environments, including path handling and filesystem semantics.
@@ -392,7 +397,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
-  2. **Pipeline model instantiation:** Instantiate the pipeline `SourceBatch` object (I/O object for every stage of the pipeline), with all the initial validation (path has valid suffix, validator is correct type, env overrides are well defined, ...)
+  2. **Pipeline model instantiation:** Instantiate the pipeline `ConfigBatch` object (I/O object for every stage of the pipeline), with all the initial validation (path has valid suffix, validator is correct type, env overrides are well defined, ...)
   3. **Discovery (`fig_jam.pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects to the batch, which will flow through the whole pipeline from now on.
   4. **Parsing (`fig_jam.pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
   5. **Override resolution (`fig_jam.pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
@@ -554,7 +559,9 @@ for downstream reporting.
 
 - Define a cache contract where every `get_config` call produces an immutable result (e.g., mapping proxies, frozen dataclasses, immutable Pydantic models) so cached objects can be returned directly without defensive copying.
 - Formalize hashable identities for inputs: canonicalize paths, normalize section names, and derive stable fingerprints for validators (sorted key/type tuples for dict specs, reified field descriptors for dataclasses and Pydantic models).
-- Once those guarantees are enforced, layer memoization atop `_load_config_internal`, expose cache controls or metrics as needed, and ensure invalidation hooks exist for runtime file changes or explicit user requests.
+- Once those guarantees are enforced, layer memoization atop the `get_config`
+  pipeline, expose cache controls or metrics as needed, and ensure invalidation
+  hooks exist for runtime file changes or explicit user requests.
 - Until then, document the residual risk that repeated calls re-read from disk so teams can decide whether to wrap `get_config` themselves.
 
 ### Configuration Blueprint Generation
