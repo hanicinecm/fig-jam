@@ -1,0 +1,70 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    tests:
+        name: Test on Python ${{ matrix.python-version }}
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # Here we test Python 3.9 through 3.14 (inclusive).
+                # (Ensure `requires-python` in pyproject is updated accordingly, e.g., ">=3.9")
+                python-version: [3.9, 3.10, 3.11, 3.12, 3.13, 3.14]
+
+        steps:
+            - name: Check out code
+              uses: actions/checkout@v5
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v7
+              with:
+                  enable-cache: true
+
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ matrix.python-version }}
+
+            - name: Install project (dependencies)
+              run: uv sync --dev --frozen
+
+            - name: Check linting
+              run: uvx ruff check
+
+            - name: Check formatting
+              run: uvx ruff format --check
+
+            - name: Run tests
+              # On latest python, we run tests with coverage and generate XML report.
+              run: |
+                  if [ "${{ matrix.python-version }}" = "3.14" ]; then
+                    uv run pytest --cov --cov-branch --cov-report=xml
+                  else
+                    uv run pytest 
+                  fi
+
+            - name: Upload coverage reports to Codecov
+              uses: codecov/codecov-action@v5
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+
+            - name: Verify version consistency
+              # Ensure that the version in pyproject.toml matches the latest version in CHANGELOG.md
+              run: |
+                  latest_changelog_ver=$(grep -E '^## ' CHANGELOG.md | head -1 | sed 's/^## *//')
+                  pyproject_ver=$(uv version --short)
+                  if [[ "$pyproject_ver" != "$latest_changelog_ver"* ]]; then
+                      echo "Version mismatch: pyproject.toml version ($pyproject_ver) does not match the latest CHANGELOG version ($latest_changelog_ver)"
+                      exit 1
+                  fi
+
+            - name: Build sanity test
+              # Build the source and wheel and ensure the builds complete successfully and the wheel can be installed.
+              run: |
+                  uv build --no-sources
+                  uv run --isolated --no-project --with dist/*.whl python -c "import fig_jam; print(f'fig-jam installed in version: {fig_jam.__version__}')"
