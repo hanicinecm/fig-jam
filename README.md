@@ -1,6 +1,6 @@
 # `fig-jam`
 
-[![CI status](https://github.com/hanicinecm/fig-jam/workflows/ci/badge.svg)](https://github.com/hanicinecm/fig-jam/actions/workflows/ci.yaml)
+[![CI status](https://github.com/hanicinecm/fig-jam/actions/workflows/ci.yaml/badge.svg)](https://github.com/hanicinecm/fig-jam/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/github/hanicinecm/fig-jam/graph/badge.svg?token=542NGCYIDW)](https://codecov.io/github/hanicinecm/fig-jam)
 
 Single-call configuration loader that discovers, parses, validates, and documents
