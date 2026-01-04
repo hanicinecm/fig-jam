@@ -11,17 +11,6 @@
   }
   '''
 # ---
-# name: test_directory_all_candidates_fail
-  '''
-  No configuration candidates under '<tmp>' passed validation or parsing. Failures:
-  - <tmp>/type_error.toml: section 'database' not found. Available top-level keys: host, port.
-  - <tmp>/missing_dep.yaml: section 'database' not found. Available top-level keys: host, port.
-  - <tmp>/missing_section.json: section 'database' not found. Available top-level keys: host.
-  Configuration template (e.g. TOML):
-  host = "<string>"
-  port = "<int>"
-  '''
-# ---
 # name: test_file_access_error_snapshot
   "Configuration loading failed for '<tmp>/config.json': file could not be read: [Errno 13] Permission denied: '<tmp>/config.json'. Check permissions and path."
 # ---

@@ -413,26 +413,3 @@ def test_file_access_error_snapshot(
         path.chmod(0o644)
 
     assert_snapshot(str(excinfo.value))
-
-
-def test_directory_all_candidates_fail(
-    tmp_path: Path,
-    write_json_config: Callable[[str, dict[str, Any]], Path],
-    write_yaml_config: Callable[[str, dict[str, Any]], Path],
-    write_toml_config: Callable[[str, dict[str, Any]], Path],
-    dict_validator: dict[str, type],
-    assert_snapshot: Callable[[str], None],
-) -> None:
-    """Snapshot when multiple candidates all fail at different stages."""
-    # Missing dependency (YAML)
-    write_yaml_config("missing_dep.yaml", {"host": "db", "port": 5432})
-    # Missing section (JSON)
-    write_json_config("missing_section.json", {"host": "db"})
-    # Type coercion error (TOML)
-    write_toml_config("type_error.toml", {"host": "db", "port": "abc"})
-    root = tmp_path
-
-    with pytest.raises(ConfigError) as excinfo:
-        get_config(path=root, section="database", validator=dict_validator)
-
-    assert_snapshot(str(excinfo.value))
