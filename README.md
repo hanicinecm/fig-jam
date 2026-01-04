@@ -12,7 +12,7 @@ project settings with minimal boilerplate.
 from fig_jam import get_config
 
 config = get_config(
-    path="./config.yaml",                  # file or directory; defaults to Path.home()
+    path="./config.yaml",                  # file or directory; defaults to ~
     section="database",                    # optional top-level key to extract
     validator={"host": str, "port": int},  # or list[str], dataclass, Pydantic
 )

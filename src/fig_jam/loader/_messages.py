@@ -109,6 +109,7 @@ def _render_no_sources(batch: ConfigBatch) -> str:
 
 
 def _render_multiple_validated(batch: ConfigBatch, sources: list[ConfigSource]) -> str:
+    sources = sorted(sources, key=lambda s: str(s.path))
     paths = ", ".join(str(source.path) for source in sources)
     return (
         f"Multiple configuration files matched for '{batch.root_path}' and passed "
