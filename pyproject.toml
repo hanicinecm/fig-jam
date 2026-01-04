@@ -15,10 +15,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ipython>=8.37.0",
-    "pydantic>=2.12.4",
-    "pytest-cov>=7.0.0",
-    "pyyaml>=6.0.3",
-    "ruff>=0.14.2",
-    "syrupy>=5.0.0",
+    "ipython",
+    "pydantic",
+    "pytest-cov",
+    "pyyaml",
+    "ruff",
+    "syrupy",
 ]
