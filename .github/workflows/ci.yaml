@@ -136,11 +136,13 @@ jobs:
               with:
                   python-version: "3.12"
 
-            - name: Install project (dependencies)
-              run: uv sync --dev --frozen
-
             - name: Build sanity test
-              # Build the source and wheel and ensure the builds complete successfully and the wheel can be installed.
+              # Build the source and wheel and ensure the builds complete successfully and the smoke tests are passing on the wheel.
               run: |
+                  REPO_ROOT="$(pwd)"
                   uv build --no-sources
-                  uv run --isolated --no-project --with dist/*.whl python -c "import fig_jam; print(f'fig-jam installed in version: {fig_jam.__version__}')"
+                  WHEEL_PATH="$(ls -1 dist/*.whl | head -1)"
+                  TESTS_DIR="$(mktemp -d)"
+                  cp -R tests/smoke_tests "$TESTS_DIR/"
+                  cd "$TESTS_DIR/smoke_tests"
+                  uv run --isolated --no-project --with "$REPO_ROOT/$WHEEL_PATH" --with pytest pytest . -vv
