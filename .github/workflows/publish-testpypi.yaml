@@ -37,7 +37,10 @@ jobs:
                   uv build --no-sources
 
             - name: Publish to TestPyPI
-              run: uv publish --index test-pypi
+              run: |
+                  uv publish \
+                      --publish-url https://test.pypi.org/legacy/ \
+                      --check-url https://test.pypi.org/simple
 
             - name: Smoke tests from TestPyPI
               run: |
@@ -45,8 +48,8 @@ jobs:
                   cp -R tests/smoke_tests "$TESTS_DIR/"
                   cd "$TESTS_DIR/smoke_tests"
                   uv run --isolated --no-project \
-                      --default-index test-pypi \
-                      --index pypi \
+                      --default-index https://test.pypi.org/simple \
+                      --index https://pypi.org/simple \
                       --with "fig-jam==$DEV_VERSION" \
                       --with pytest \
                       --python 3.12 \
