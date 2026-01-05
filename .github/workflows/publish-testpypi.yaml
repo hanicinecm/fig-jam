@@ -1,0 +1,57 @@
+name: Publish TestPyPI
+
+on:
+  push:
+    tags:
+      # Publish on any tag starting with a `v`, e.g., v1.2.3
+      - v*
+
+jobs:
+  publish_testpypi:
+    name: Publish to TestPyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: test-pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Set dev version and build
+        run: |
+          base_version="$(uv version --short)"
+          dev_version="${base_version}.dev${GITHUB_RUN_NUMBER}"
+          uv version "$dev_version"
+          echo "DEV_VERSION=$dev_version" >> "$GITHUB_ENV"
+          uv build --no-sources
+
+      - name: Publish to TestPyPI
+        run: |
+          uv publish \
+              --publish-url https://test.pypi.org/legacy/ \
+              --check-url https://test.pypi.org/simple
+
+      - name: Smoke tests from TestPyPI
+        run: |
+          TESTS_DIR="$(mktemp -d)"
+          cp -R tests/smoke_tests "$TESTS_DIR/"
+          cd "$TESTS_DIR/smoke_tests"
+          sleep 5
+          uv run --isolated --no-project \
+              --default-index https://test.pypi.org/simple \
+              --index https://pypi.org/simple \
+              --refresh-package fig-jam \
+              --with "fig-jam==$DEV_VERSION" \
+              --with pytest \
+              --python 3.12 \
+              pytest . -vv

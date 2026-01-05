@@ -1,0 +1,131 @@
+# serializer version: 1
+# name: test_dataclass_missing_required_snapshot
+  '''
+  Configuration loading failed for '<tmp>/config.json': dataclass instantiation failed: DatabaseConfig.__init__() missing 1 required positional argument: 'port'. Ensure required fields are provided with correct types.
+  Configuration template (JSON):
+  {
+    "host": "<value>",
+    "port": "<value>",
+    "user": "<value> (default: \"admin\")",
+    "password": "<value> (default: \"changeme\", env: APP_DB_PASSWORD)"
+  }
+  '''
+# ---
+# name: test_file_access_error_snapshot
+  "Configuration loading failed for '<tmp>/config.json': file could not be read: [Errno 13] Permission denied: '<tmp>/config.json'. Check permissions and path."
+# ---
+# name: test_invalid_env_override_snapshot
+  "Invalid __env_overrides__ declared on validator 'type'. Ensure overrides reference existing fields."
+# ---
+# name: test_invalid_strict_snapshot
+  'strict=False is only allowed with a list[str] validator or no validator. Use strict=True or change the validator type.'
+# ---
+# name: test_invalid_validator_type_snapshot
+  "Validator of type 'int' is not supported. Use list[str], dict[str, type], a dataclass, a Pydantic model, or None."
+# ---
+# name: test_list_missing_keys_snapshot
+  '''
+  Configuration loading failed for '<tmp>/config.json': missing required keys: port. Add the missing keys to the config section.
+  Configuration template (JSON):
+  {
+    "host": "<value>",
+    "port": "<value>"
+  }
+  '''
+# ---
+# name: test_missing_keys_snapshot
+  '''
+  Configuration loading failed for '<tmp>/config.json': missing required keys: port. Add the missing keys to the config section.
+  Configuration template (JSON):
+  {
+    "host": "<string>",
+    "port": "<int>"
+  }
+  '''
+# ---
+# name: test_missing_section_snapshot
+  '''
+  Configuration loading failed for '<tmp>/config.json': section 'database' not found. Available top-level keys: host, port.
+  Configuration template (JSON):
+  {
+    "host": "<string>",
+    "port": "<int>"
+  }
+  '''
+# ---
+# name: test_multiple_validated_sources_snapshot
+  "Multiple configuration files matched for '<tmp>' and passed validation: <tmp>/a.json, <tmp>/b.json. Provide an explicit path or a narrower validator to disambiguate."
+# ---
+# name: test_no_sources_snapshot
+  "No configuration files found under '<tmp>/configs' matching extensions: .ini, .cfg, .json, .toml, .yaml, .yml. Create a config file or provide an explicit path."
+# ---
+# name: test_not_mapping_snapshot
+  "Configuration loading failed for '<tmp>/list.json': parsed content is not a mapping (got list). Config must be a mapping."
+# ---
+# name: test_path_not_found_snapshot
+  "Configuration loading failed for '<tmp>/missing.json': path '<tmp>/missing.json' does not exist. Create the file or point to an existing path with a supported extension."
+# ---
+# name: test_pydantic_validation_error_snapshot
+  '''
+  Configuration loading failed for '<tmp>/service.json': pydantic validation failed: 1 validation error for PydanticServiceConfig
+  database.password
+    Field required [type=missing, input_value={'host': 'db', 'port': 5432, 'user': 'svc'}, input_type=dict]
+      For further information visit https://errors.pydantic.dev/2.12/v/missing
+  Configuration template (JSON):
+  {
+    "database": {
+      "host": "<string>",
+      "port": "<int>",
+      "user": "<string> (default: \"admin\")",
+      "password": "<string> (env: PDB_PASSWORD)"
+    },
+    "region": "<string>",
+    "debug": "<bool> (default: false)"
+  }
+  '''
+# ---
+# name: test_syntax_error_snapshot
+  "Configuration loading failed for '<tmp>/broken.json': could not parse file contents: Illegal trailing comma before end of object: line 1 column 14 (char 13)"
+# ---
+# name: test_template_ini_format
+  '''
+  Configuration loading failed for '<tmp>/config.ini': missing required keys: port. Add the missing keys to the config section.
+  Configuration template (INI):
+  [DEFAULT]
+  host = <string>
+  port = <int>
+  '''
+# ---
+# name: test_template_toml_format
+  '''
+  Configuration loading failed for '<tmp>/config.toml': missing required keys: port. Add the missing keys to the config section.
+  Configuration template (TOML):
+  host = "<string>"
+  port = "<int>"
+  '''
+# ---
+# name: test_template_yaml_format
+  '''
+  Configuration loading failed for '<tmp>/config.yaml': missing required keys: port. Add the missing keys to the config section.
+  Configuration template (YAML):
+  host: <string>
+  port: <int>
+  
+  '''
+# ---
+# name: test_unsupported_format_snapshot
+  "Unsupported config format for path '<tmp>/config.txt'. Supported extensions: .ini, .cfg, .json, .toml, .yaml, .yml. Use a supported file or point to a directory."
+# ---
+# name: test_validation_type_coercion_snapshot
+  '''
+  Configuration loading failed for '<tmp>/config.json': failed to coerce values to expected types (port -> invalid literal for int() with base 10: 'not-an-int').
+  Configuration template (JSON):
+  {
+    "host": "<string>",
+    "port": "<int>"
+  }
+  '''
+# ---
+# name: test_yaml_missing_dependency_snapshot
+  "Configuration loading failed for '<tmp>/config.yaml': missing dependency 'pyyaml' to parse .yaml. Install it with `uv add pyyaml` or `pip install pyyaml`."
+# ---
