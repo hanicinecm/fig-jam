@@ -3,6 +3,8 @@ name = "fig-jam"
 version = "0.1.0"
 description = "Agnostic fonfig manager"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Martin Hanicinec", email = "hanicinecm@gmail.com" }
 ]
