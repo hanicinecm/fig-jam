@@ -24,3 +24,6 @@ dev = [
     "ruff",
     "syrupy",
 ]
+
+[tool.coverage.run]
+omit = ["tests/*"]
