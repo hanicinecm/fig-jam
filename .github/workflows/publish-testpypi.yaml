@@ -47,9 +47,11 @@ jobs:
                   TESTS_DIR="$(mktemp -d)"
                   cp -R tests/smoke_tests "$TESTS_DIR/"
                   cd "$TESTS_DIR/smoke_tests"
+                  sleep 5
                   uv run --isolated --no-project \
                       --default-index https://test.pypi.org/simple \
                       --index https://pypi.org/simple \
+                      --refresh-package fig-jam \
                       --with "fig-jam==$DEV_VERSION" \
                       --with pytest \
                       --python 3.12 \
