@@ -62,7 +62,7 @@ jobs:
               run: uv run pytest
 
     coverage:
-        name: Tests with coverage (Python 3.12)
+        name: Tests with coverage
         runs-on: ubuntu-latest
         steps:
             - name: Check out code
@@ -120,7 +120,7 @@ jobs:
                   fi
 
     build_sanity:
-        name: Build sanity test (Python 3.12)
+        name: Build sanity test
         runs-on: ubuntu-latest
         steps:
             - name: Check out code
@@ -135,14 +135,19 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: "3.12"
+            
+            - name: Build
+              # Build the source and wheel and ensure the builds complete successfully
+              run: uv build --no-sources
 
-            - name: Build sanity test
-              # Build the source and wheel and ensure the builds complete successfully and the smoke tests are passing on the wheel.
+            - name: Smoke tests
+              # Ensure that the smoke tests are passing on the wheel and source distribution.
               run: |
                   REPO_ROOT="$(pwd)"
-                  uv build --no-sources
                   WHEEL_PATH="$(ls -1 dist/*.whl | head -1)"
+                  SOURCE_PATH="$(ls -1 dist/*.tar.gz | head -1)"
                   TESTS_DIR="$(mktemp -d)"
                   cp -R tests/smoke_tests "$TESTS_DIR/"
                   cd "$TESTS_DIR/smoke_tests"
                   uv run --isolated --no-project --with "$REPO_ROOT/$WHEEL_PATH" --with pytest pytest . -vv
+                  uv run --isolated --no-project --with "$REPO_ROOT/$SOURCE_PATH" --with pytest pytest . -vv
