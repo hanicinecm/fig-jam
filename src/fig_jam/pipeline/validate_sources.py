@@ -126,6 +126,8 @@ def _handle_dataclass_validator(
     instantiate the dataclass. Missing required fields are reported by the
     dataclass constructor via TypeError.
     """
+    # TODO: Coerce nested dataclass/Pydantic fields recursively and aggregate
+    # missing-field errors instead of deferring to constructor errors.
     coerced: dict[str, object] = {}
     coercion_errors: dict[str, Exception] = {}
     resolved_hints = typing.get_type_hints(dataclass_type)

@@ -13,12 +13,12 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Functions
 
-- **`get_config(path: PathLike | None = None, section: str | None = None, validator: Any = None, strict: bool = True) -> Any`**
+- **`get_config(path: PathLike | None = None, section: str | None = None, *, validator: Any = None, strict: bool = True) -> Any`**
   - Main entry point for configuration loading.
   - `path`: Optional path to a config file or directory. If `None`, searches user's home directory.
   - `section`: Optional top-level key to extract from config before validation.
-  - `validator`: Optional schema for validation (Pydantic model, dataclass, `dict[str, type]`, or `list[str]`).
-  - `strict`: Controls whether extra keys (not declared in the validator) are filtered out. Defaults to `True`. Only applicable to `list[str]` validators; must be `True` for `dict[str, type]`, dataclass, and Pydantic validators (raises `ConfigError` otherwise). Has no effect when `validator` is `None`.
+  - `validator`: Optional schema for validation (Pydantic model, dataclass, `dict[str, type]`, or `list[str]`). Keyword-only.
+  - `strict`: Controls whether extra keys (not declared in the validator) are filtered out. Defaults to `True`. Only applicable to `list[str]` validators; must be `True` for `dict[str, type]`, dataclass, and Pydantic validators (raises `ConfigError` otherwise). Has no effect when `validator` is `None`. Keyword-only.
   - Returns validated configuration data in a format determined by the validator type:
     - `list[str]`: Validates that all specified keys exist. If `strict=True`, returns a dict containing only those keys. If `strict=False`, returns the full payload with all keys.
     - `dict[str, type]`: Validates that all specified keys exist and coerces values to the declared types. Returns a dict containing only those keys.
@@ -375,15 +375,15 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Requirements / What
 
 - **Functional requirements:**
-  - Developer → calls `get_config(path, section=None, validator=None)` → receives a validated result or a descriptive exception.
+  - Developer → calls `get_config(path, section=None, *, validator=None, strict=True)` → receives a validated result or a descriptive exception.
   - Developer → passes a directory path → loader inspects only top-level files of supported formats, applying validators and succeeding only when exactly one match remains.
-  - Developer → passes `section` → loader extracts the top-level key before validation and return.
+  - Developer → passes `section` → loader extracts the top-level key before validation and return; the section value must be a mapping.
   - Developer → provides validator (Pydantic model, dataclass, dict[str, type], list[str]) → loader coerces/filters data accordingly and returns the coerced structure.
   - Developer → declares `__env_overrides__` on dataclass or Pydantic validators → override stage pulls matching environment variables into the candidate data prior to validation.
   - Developer → omits optional dependencies → loader skips unsupported formats/validators and hints in a raised `ConfigError` that the path (or some paths) were skipped due to a missing dependency, with install instructions when needed. This applies to `yaml` format (requires `pyyaml`) or to `toml` format for older python without `tomllib` (requires `tomli`).
 - **Non-functional requirements:**
   - Pure-Python implementation with stdlib-only baseline; optional features rely on user-installed extras.
-- Compatible with CPython >=3.9; fully typed and mypy/pyright friendly.
+- Compatible with CPython >=3.8; fully typed and mypy/pyright friendly.
   - Linted and formatted with `ruff`.
   - Thread-safe reads; repeated calls must remain side-effect free.
   - Works consistently across macOS, Linux, and Windows environments, including path handling and filesystem semantics.
@@ -469,7 +469,9 @@ The parsing stage invokes the appropriate parser for each discovered source:
 - Selects the parser from the registry based on the file suffix.
 - Reads, decodes, and parses the file contents into a mapping.
 - If `batch.section` is specified, extracts the named top-level key from the
-  parsed mapping; sources missing the section are marked with an error.
+  parsed mapping; sources missing the section are marked with an error. If the
+  section exists but is not a mapping, the source is marked with a not-mapping
+  error.
 - Stores the full parsed result in `raw_payload` (immutable) and the working
   data (possibly section-extracted) in `payload`.
 
@@ -497,6 +499,9 @@ unchanged. Missing environment variables leave parsed values intact.
 ### Validation Stage (`validate_sources.py`)
 
 The validation stage applies the user-provided validator to each active source:
+
+- Validation assumes the payload is a mapping; non-mapping payloads are treated
+  as parse-stage errors.
 
 - **`None`:** No validation; the payload passes through as-is. `strict` has no effect.
 - **`list[str]`:** Validates that all specified keys exist in the payload; missing
@@ -538,7 +543,7 @@ for downstream reporting.
 
 ## CI/CD setup
 
-- Configure GitHub Actions CI matrix across OS (Ubuntu, macOS, Windows) and Python versions (3.9+).
+- Configure GitHub Actions CI matrix across OS (Ubuntu, macOS, Windows) and Python versions (3.8+).
 - Run linting & formatting checks (`ruff check` and `ruff format --check`).
 - Run test suite (`pytest`) with coverage reporting.
 - Add version consistency check ensuring installed package version matches latest `CHANGELOG.md` entry.
