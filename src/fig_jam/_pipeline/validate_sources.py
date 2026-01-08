@@ -8,14 +8,14 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
-from fig_jam.pipeline._model import ConfigBatch, ConfigSource, PipelineStage
-from fig_jam.pipeline._validators import (
+from fig_jam._pipeline._model import ConfigBatch, ConfigSource, PipelineStage
+from fig_jam._pipeline.override_sources import OverridesStatus
+from fig_jam._validators.introspection import (
     is_dataclass_validator,
     is_dict_validator,
     is_list_validator,
     is_pydantic_validator,
 )
-from fig_jam.pipeline.override_sources import OverridesStatus
 
 
 class ValidationStatus(str, Enum):

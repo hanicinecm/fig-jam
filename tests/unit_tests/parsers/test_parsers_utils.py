@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from fig_jam.parsers import _parsers_utils as utils
-from fig_jam.parsers._parsers_errors import (
+from fig_jam._parsers import _utils as utils
+from fig_jam._parsers.errors import (
     ParserDecodingError,
     ParserSyntaxError,
     ParserTypeError,

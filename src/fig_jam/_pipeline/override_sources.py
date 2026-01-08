@@ -7,8 +7,8 @@ from collections.abc import MutableMapping
 from enum import Enum
 from typing import Any
 
-from fig_jam.pipeline._model import ConfigBatch, PipelineStage
-from fig_jam.pipeline.parse_sources import ParsingStatus
+from fig_jam._pipeline._model import ConfigBatch, PipelineStage
+from fig_jam._pipeline.parse_sources import ParsingStatus
 
 
 class OverridesStatus(str, Enum):

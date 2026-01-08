@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fig_jam.loader._exceptions import ConfigError
-from fig_jam.loader._messages import render_error
-from fig_jam.pipeline import (
+from fig_jam._loader._exceptions import ConfigError
+from fig_jam._loader._messages import render_error
+from fig_jam._pipeline import (
     ConfigBatch,
     ValidationStatus,
     discover,
@@ -18,7 +18,7 @@ from fig_jam.pipeline import (
 )
 
 
-def get_config(
+def load_config(
     path: os.PathLike[str] | str | None = None,
     section: str | None = None,
     *,

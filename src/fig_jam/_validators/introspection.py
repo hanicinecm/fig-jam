@@ -1,4 +1,4 @@
-"""Helpers for validator inspection."""
+"""Helpers for validator introspection."""
 
 from __future__ import annotations
 

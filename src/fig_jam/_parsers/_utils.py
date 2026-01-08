@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from fig_jam.parsers._parsers_errors import (
+from fig_jam._parsers.errors import (
     ParserDecodingError,
     ParserSyntaxError,
     ParserTypeError,

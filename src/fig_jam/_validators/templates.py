@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - optional
     BaseModel = None  # type: ignore[assignment]
     Undefined = object()
 
-from fig_jam.pipeline._validators import (
+from fig_jam._validators.introspection import (
     is_dataclass_validator,
     is_dict_validator,
     is_list_validator,

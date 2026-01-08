@@ -4,7 +4,7 @@
 
 - **Name:** `fig-jam`
 - **Description:** Single-call configuration loader that locates, parses, validates, and returns project settings across common formats without per-project boilerplate.
-- **Scope:** Public API `fig_jam.get_config` and the supporting discovery, parsing, validation, and diagnostics internals required for v1.
+- **Scope:** Public API `fig_jam.load_config` and the supporting discovery, parsing, validation, and diagnostics internals required for v1.
 - **Audience:** Python package maintainers who manage shared configuration data across many internal services or are just tired of writing boilerplate config extraction layers.
 
 ## Public API
@@ -13,7 +13,7 @@ The package exposes the following public interface through the `fig_jam` namespa
 
 ### Functions
 
-- **`get_config(path: PathLike | None = None, section: str | None = None, *, validator: Any = None, strict: bool = True) -> Any`**
+- **`load_config(path: PathLike | None = None, section: str | None = None, *, validator: Any = None, strict: bool = True) -> Any`**
   - Main entry point for configuration loading.
   - `path`: Optional path to a config file or directory. If `None`, searches user's home directory.
   - `section`: Optional top-level key to extract from config before validation.
@@ -39,11 +39,11 @@ The package exposes the following public interface through the `fig_jam` namespa
 ### Usage Example
 
 ```python
-from fig_jam import get_config, ConfigError
+from fig_jam import load_config, ConfigError
 from pathlib import Path
 
 try:
-    config = get_config(
+    config = load_config(
         path=Path("./config.yaml"),
         section="database",
         validator={"host": str, "port": int},
@@ -61,41 +61,42 @@ modular and explicit:
 ```text
 src/fig_jam
 ├── __init__.py
-├── loader/
+├── _loader/
 │   ├── __init__.py
 │   ├── _core.py
 │   ├── _exceptions.py
-│   ├── _messages.py
-│   └── _templates.py
-├── parsers/
+│   └── _messages.py
+├── _validators/
 │   ├── __init__.py
-│   ├── _parsers_errors.py
-│   ├── _parsers_utils.py
-│   └── _parsers.py
-└── pipeline/
+│   ├── introspection.py
+│   └── templates.py
+├── _parsers/
+│   ├── __init__.py
+│   ├── errors.py
+│   ├── registry.py
+│   └── _utils.py
+└── _pipeline/
     ├── __init__.py
     ├── _model.py
-    ├── _validators.py
     ├── discover_sources.py
     ├── parse_sources.py
     ├── override_sources.py
     └── validate_sources.py
 ```
 
-- The `loader` package implements the public `get_config` function and `ConfigError`
+- The `_loader` package implements the public `load_config` function and `ConfigError`
   exception. It instantiates a `ConfigBatch`, pushes it through the pipeline stages,
-  and extracts the final result or raises with diagnostics. The public names are
-  re-exported from the package-level `__init__.py`.
-- The `parsers` package owns the registry of parsers defined for each suffix and
+  and extracts the final result or raises with diagnostics.
+- The `_parsers` package owns the registry of parsers defined for each suffix and
   exposes helpers for normalization, error handling, and supported suffix lookups.
-- The `pipeline` package contains the state models (`_model`), validator
-  introspection helpers (`_validators`), and the four stage implementations.
+- The `_validators` package contains validator introspection helpers and
+  template rendering utilities used by the loader and pipeline.
+- The `_pipeline` package contains the state models (`_model`) and the four stage
+  implementations.
   Each stage module exposes one public function that accepts a `ConfigBatch` and
   returns the updated batch. Stages immediately return if `batch.error_code` is
   already set, so factories can instantiate a batch and bail out early when the
-  root path or validator is invalid. These functions, along with `ConfigSource`,
-  `ConfigBatch`, `BatchErrorCode`, and `PipelineStage`, are re-exported from the
-  `fig_jam.pipeline` package for direct consumption.
+  root path or validator is invalid.
 
 ## User Stories
 
@@ -110,9 +111,9 @@ src/fig_jam
 1. **Initial attempt** - Alice writes minimal code to load config:
 
    ```python
-   from fig_jam import get_config
+   from fig_jam import load_config
 
-   cfg_data = get_config()
+   cfg_data = load_config()
    ```
 
 2. **First run** - She runs the code on a fresh system and receives a `ConfigError` explaining that no config files were found in her home directory (the default path when `path=None`). The error message lists the attempted paths and supported file extensions (`.json`, `.toml`, `.yaml`, `.yml`, `.cfg`, `.ini`).
@@ -179,10 +180,10 @@ Wanda has `app_settings.json` in her home directory (`/home/wanda/`):
 Bob writes his application code using section extraction and validation:
 
 ```python
-from fig_jam import get_config
+from fig_jam import load_config
 from pathlib import Path
 
-nas_config = get_config(
+nas_config = load_config(
     section="nas_paths",
     validator={"shared_drive_dir": Path}
 )
@@ -195,7 +196,7 @@ print(f"Using NAS drive at: {shared_drive}")
 **Outcome:**
 
 - Both Zoran and Wanda can run Bob's application without any changes to their existing config files.
-- The `get_config` call discovers either TOML or JSON files in their respective home directories (since `path` was not specified, it defaults to the user's home directory).
+- The `load_config` call discovers either TOML or JSON files in their respective home directories (since `path` was not specified, it defaults to the user's home directory).
 - Section extraction pulls only the `nas_paths` section from the configs, ignoring other unrelated data.
 - The validator ensures `shared_drive_dir` exists and coerces the string value to a `Path` object appropriate for their OS (Zoran sees `WindowsPath('Z:\\shared\\path')` on Windows, Wanda sees `PosixPath('/mnt/shared')` on Linux).
 - Extra keys in the section (like Wanda's `backup_dir`) are filtered out.
@@ -237,7 +238,7 @@ print(f"Using NAS drive at: {shared_drive}")
 Cilia writes her application code with explicit path, section, and Pydantic validation:
 
 ```python
-from fig_jam import get_config
+from fig_jam import load_config
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -250,7 +251,7 @@ class DatabaseConfig(BaseModel):
     __env_overrides__ = {"password": "APP_DB_PASSWORD"}
 
 
-db_config = get_config(
+db_config = load_config(
     path=Path("/home/wanda/app_settings.json"),
     section="database",
     validator=DatabaseConfig,
@@ -308,10 +309,10 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 1. **First attempt** - Dominic tries the simplest call from Python shell:
 
    ```python
-   >>> from fig_jam import get_config
+   >>> from fig_jam import load_config
    >>> from pathlib import Path
    >>> 
-   >>> config = get_config(path=Path("/home/wanda"))
+   >>> config = load_config(path=Path("/home/wanda"))
    ```
 
    He receives a `ConfigError` indicating that multiple config files were found in `/home/wanda` (listing `my_config.toml`, `app_settings.json`, and `system_config.json`), and he needs to either specify an explicit file path or use a validator to disambiguate.
@@ -325,7 +326,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
    ... class VersionConfig:
    ...     version: int
    ... 
-   >>> config = get_config(
+   >>> config = load_config(
    ...     path=Path("/home/wanda"),
    ...     validator=VersionConfig
    ... )
@@ -375,7 +376,7 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 ## Requirements / What
 
 - **Functional requirements:**
-  - Developer → calls `get_config(path, section=None, *, validator=None, strict=True)` → receives a validated result or a descriptive exception.
+  - Developer → calls `load_config(path, section=None, *, validator=None, strict=True)` → receives a validated result or a descriptive exception.
   - Developer → passes a directory path → loader inspects only top-level files of supported formats, applying validators and succeeding only when exactly one match remains.
   - Developer → passes `section` → loader extracts the top-level key before validation and return; the section value must be a mapping.
   - Developer → provides validator (Pydantic model, dataclass, dict[str, type], list[str]) → loader coerces/filters data accordingly and returns the coerced structure.
@@ -398,10 +399,10 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 - **Data flow:**
   1. **Input normalization:** Convert inputs (`path`, optional `section`, validator reference) to canonical forms in `loader`.
   2. **Pipeline model instantiation:** Instantiate the pipeline `ConfigBatch` object (I/O object for every stage of the pipeline), with all the initial validation (path has valid suffix, validator is correct type, env overrides are well defined, ...)
-  3. **Discovery (`fig_jam.pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects to the batch, which will flow through the whole pipeline from now on.
-  4. **Parsing (`fig_jam.pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
-  5. **Override resolution (`fig_jam.pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
-  6. **Validation stage (`fig_jam.pipeline.validate`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each acitive candidate. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures are logged.
+  3. **Discovery (`fig_jam._pipeline.discover`):** Based on `path` (file or directory), enumerate all candidate paths and instantiate the source objects to the batch, which will flow through the whole pipeline from now on.
+  4. **Parsing (`fig_jam._pipeline.parse`):** Input is a list of source objects. Invoke appropriate parsers from the parser registry for each candidate and parse the files, or log errors to the source objects. If `section` is provided, extract section content from successfully parsed sources or log errors. Output is a list of modified source objects.
+  5. **Override resolution (`fig_jam._pipeline.override`):** When a dataclass or Pydantic validator defines `__env_overrides__`, merge matching environment variables into the candidate data before validation. Only done on candiates (sources) which are still in the active game, while candidates with errors from prior stages are passed right through.
+  6. **Validation stage (`fig_jam._pipeline.validate`):** Apply the user-provided validator (`None`, `list[str]`, `dict[str, type]`, dataclass, Pydantic model) to each acitive candidate. Candidates with prior errors are passed through unchanged. Successful candidates receive validated payloads; failures are logged.
   7. **Result extraction (loader):** Examine the objects passed through the pipeline. If exactly one candidate has valid data, return it. In any other case, the `ConfigError` is raised with all the appropriate context data.
 - **Environment overrides:**
   - Disabled unless the validator (dataclass or Pydantic model) declares a `__env_overrides__` mapping.
@@ -412,9 +413,9 @@ Now when Wanda runs the application, it succeeds. The config is loaded with:
 
 ## Pipeline Data Model
 
-The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics. All public stage functions, along with the `ConfigSource` and `ConfigBatch` models, are re-exported from the `fig_jam.pipeline` package namespace for convenient imports.
+The pipeline flows `ConfigBatch` objects through four sequential stages: discovery, parsing, overrides, and validation. Each stage processes active sources (those without prior errors) and records stage status/metadata directly on the source objects for downstream diagnostics. The stage functions and models live in the private `fig_jam._pipeline` package and are not part of the public API.
 
-**ConfigSource (`fig_jam.pipeline._model`):** Represents a single candidate configuration file or path flowing through the pipeline. A `ConfigSource` may wrap a path that does not exist on disk (for example, to record discovery or access errors), as well as existing files.
+**ConfigSource (`fig_jam._pipeline._model`):** Represents a single candidate configuration file or path flowing through the pipeline. A `ConfigSource` may wrap a path that does not exist on disk (for example, to record discovery or access errors), as well as existing files.
 
 - `path: Path` — Immutable file path discovered during the discovery stage. May refer to a non-existent file or directory.
 - `raw_payload: MappingProxyType | None` — Frozen dict from the parser (immutable snapshot of parsed content).
@@ -424,7 +425,7 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 - `stage_status: str | None` — Status code (per-stage enum value) reported by the last visited stage (e.g., `"success"`, `"missing-dependency-error"`).
 - `stage_error_metadata: dict[str, Any]` — Free-form metadata specific to `stage_status`; includes diagnostics such as missing dependency name, exception object, or missing section name.
 
-**ConfigBatch (`fig_jam.pipeline._model`):** Collection of `ConfigSource` objects flowing through the pipeline.
+**ConfigBatch (`fig_jam._pipeline._model`):** Collection of `ConfigSource` objects flowing through the pipeline.
 
 - `root_path: Path` — Original user-provided file or directory path. The suffix must be either empty, or one of the supported config formats, otherwise an error code is set.
 - `section: str | None` — Original user-provided section name.
@@ -434,7 +435,7 @@ The pipeline flows `ConfigBatch` objects through four sequential stages: discove
 - `sources: list[ConfigSource]` — List of candidate sources discovered and processed.
 - `error_code: BatchErrorCode | None` — When discovery encounters a high-level failure (unsupported types, etc), records the error and short-circuits the loader before further stages.
 
-**BatchErrorCode (`fig_jam.pipeline._model`):**
+**BatchErrorCode (`fig_jam._pipeline._model`):**
 
 - Enum with some high-level error codes.
 
@@ -562,16 +563,16 @@ for downstream reporting.
 
 ### Config Caching
 
-- Define a cache contract where every `get_config` call produces an immutable result (e.g., mapping proxies, frozen dataclasses, immutable Pydantic models) so cached objects can be returned directly without defensive copying.
+- Define a cache contract where every `load_config` call produces an immutable result (e.g., mapping proxies, frozen dataclasses, immutable Pydantic models) so cached objects can be returned directly without defensive copying.
 - Formalize hashable identities for inputs: canonicalize paths, normalize section names, and derive stable fingerprints for validators (sorted key/type tuples for dict specs, reified field descriptors for dataclasses and Pydantic models).
-- Once those guarantees are enforced, layer memoization atop the `get_config`
+- Once those guarantees are enforced, layer memoization atop the `load_config`
   pipeline, expose cache controls or metrics as needed, and ensure invalidation
   hooks exist for runtime file changes or explicit user requests.
-- Until then, document the residual risk that repeated calls re-read from disk so teams can decide whether to wrap `get_config` themselves.
+- Until then, document the residual risk that repeated calls re-read from disk so teams can decide whether to wrap `load_config` themselves.
 
 ### Configuration Blueprint Generation
 
-- **Static call discovery:** Walk dependent codebases with `ast` or `libcst` to locate `fig_jam.get_config` invocations and capture literal arguments, flagging unresolved dynamic ones.
+- **Static call discovery:** Walk dependent codebases with `ast` or `libcst` to locate `fig_jam.load_config` invocations and capture literal arguments, flagging unresolved dynamic ones.
 - **Validator inspection:** For list/dict validators, emit key/type expectations; import dataclasses to read `__dataclass_fields__`; load Pydantic v2 models to extract `model_fields`, including constraints such as bounds or regex patterns. Custom validators remain manual documentation tasks.
 - **Aggregation model:** Group findings by canonical path and section, merge compatible validators, and highlight conflicts or mixed usage. Record whether validators declare `__env_overrides__` so environment variables can be documented.
 - **Markdown generation:** Render the collected data into templated documentation—sections per config path, tables of fields and types, and warnings for dynamic or manual follow-up requirements. Provide both a CLI and library API so teams can integrate the crawler into CI or doc pipelines. Triggered from CLI, printed to stdout.

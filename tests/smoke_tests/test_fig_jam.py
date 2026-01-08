@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import fig_jam
-from fig_jam import get_config
+from fig_jam import load_config
 
 
 @pytest.fixture
@@ -34,9 +34,9 @@ def test_package_version() -> None:
     assert fig_jam.__version__
 
 
-def test_get_config_loads_dataclass(nested_toml_config: Path) -> None:
+def test_load_config_loads_dataclass(nested_toml_config: Path) -> None:
     """Parse a nested TOML config, no validators, no nothing..."""
-    result = get_config(path=nested_toml_config, section="service")
+    result = load_config(path=nested_toml_config, section="service")
 
     expected = {
         "name": "fig-jam",

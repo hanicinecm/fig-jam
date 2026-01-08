@@ -2,7 +2,7 @@
 
 import importlib.metadata
 
-from fig_jam.loader import ConfigError, get_config
+from fig_jam._loader import ConfigError, load_config
 
 __version__ = importlib.metadata.version(__name__)
-__all__ = ["ConfigError", "get_config"]
+__all__ = ["ConfigError", "load_config"]

@@ -7,19 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from fig_jam.parsers import _parsers as parsers_module
-from fig_jam.parsers import get_parser, iter_supported_suffixes
-from fig_jam.parsers._parsers import (
+from fig_jam._parsers import get_parser, iter_supported_suffixes
+from fig_jam._parsers import registry as parsers_module
+from fig_jam._parsers.errors import (
+    ParserDependencyError,
+    ParserSyntaxError,
+    ParserTypeError,
+)
+from fig_jam._parsers.registry import (
     _parse_ini,
     _parse_json,
     _parse_toml,
     _parse_yaml,
     register_parser,
-)
-from fig_jam.parsers._parsers_errors import (
-    ParserDependencyError,
-    ParserSyntaxError,
-    ParserTypeError,
 )
 
 

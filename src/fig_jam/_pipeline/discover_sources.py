@@ -5,8 +5,8 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
-from fig_jam.parsers import iter_supported_suffixes
-from fig_jam.pipeline._model import (
+from fig_jam._parsers import iter_supported_suffixes
+from fig_jam._pipeline._model import (
     ConfigBatch,
     ConfigSource,
     PipelineStage,

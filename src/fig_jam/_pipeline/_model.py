@@ -1,4 +1,4 @@
-"""Data models shared across the `fig_jam.pipeline` stages.
+"""Data models shared across the `fig_jam._pipeline` stages.
 
 Each model captures the minimal state and diagnostics required by the
 discovery, parsing, override, and validation stages as they examine candidate
@@ -17,8 +17,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from fig_jam.parsers import iter_supported_suffixes
-from fig_jam.pipeline._validators import (
+from fig_jam._parsers import iter_supported_suffixes
+from fig_jam._validators.introspection import (
     collect_env_override_paths,
     is_list_validator,
     is_supported_validator,

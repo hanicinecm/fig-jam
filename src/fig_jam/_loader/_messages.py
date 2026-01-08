@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from fig_jam.loader._templates import render_template
-from fig_jam.parsers import iter_supported_suffixes
-from fig_jam.pipeline import (
+from fig_jam._parsers import iter_supported_suffixes
+from fig_jam._pipeline import (
     BatchErrorCode,
     ConfigBatch,
     ConfigSource,
@@ -17,6 +16,7 @@ from fig_jam.pipeline import (
     PipelineStage,
     ValidationStatus,
 )
+from fig_jam._validators.templates import render_template
 
 StageRenderer = Callable[[ConfigSource, ConfigBatch, bool], str]
 StageKey = tuple[PipelineStage, str]

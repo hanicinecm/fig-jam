@@ -12,6 +12,12 @@
 - The project uses `uv` for environment management but must remain installable with `pip`.
 - The Python virtual environment is in the `.venv/` directory and is managed by `uv`.
 
+## Namespace Conventions
+
+- The only public API is the top-level `fig_jam` namespace (`get_config`, `ConfigError`).
+- Internal packages must be prefixed with `_` (e.g., `fig_jam._loader`, `fig_jam._parsers`, `fig_jam._pipeline`).
+- Within private packages, keep primary modules readable (no extra underscore) and reserve `_`-prefixed modules for helpers (e.g., `fig_jam._parsers._utils`, `fig_jam._pipeline._model`).
+
 ## Toolbelt
 
 Note: All commands assume the virtual environment is active (`source .venv/bin/activate`).

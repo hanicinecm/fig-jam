@@ -1,4 +1,4 @@
-"""Integration tests for the public get_config API."""
+"""Integration tests for the public load_config API."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 
 import pytest
 
-from fig_jam import ConfigError, get_config
+from fig_jam import ConfigError, load_config
 from tests.integration_tests.conftest import (
     DatabaseConfig,
     PydanticServiceConfig,
@@ -28,7 +28,7 @@ def test_list_validator_filters_payload(
         "config.json", {"host": "localhost", "port": 5432, "extra": "ignored"}
     )
 
-    result = get_config(path=path, validator=list_validator)
+    result = load_config(path=path, validator=list_validator)
 
     assert result == {"host": "localhost", "port": 5432}
 
@@ -42,7 +42,7 @@ def test_directory_disambiguates_candidates(
     invalid = write_json_config("invalid.json", {"host": "db"})
     root = Path(valid).parent
 
-    result = get_config(path=root, validator=list_validator)
+    result = load_config(path=root, validator=list_validator)
 
     assert result == {"host": "db", "port": 5432}
     assert result != json.loads(invalid.read_text())
@@ -64,7 +64,7 @@ def test_dataclass_validator_applies_env_override(
         },
     )
 
-    result = get_config(path=path, validator=nested_dataclass_validator)
+    result = load_config(path=path, validator=nested_dataclass_validator)
 
     assert isinstance(result, ServiceConfig)
     assert isinstance(result.database, DatabaseConfig)
@@ -80,7 +80,7 @@ def test_missing_section_snapshot(
     path = write_json_config("config.json", {"host": "db", "port": 5432})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, section="database", validator=dict_validator)
+        load_config(path=path, section="database", validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -94,7 +94,7 @@ def test_missing_keys_snapshot(
     path = write_json_config("config.json", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dict_validator)
+        load_config(path=path, validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -110,7 +110,7 @@ def test_multiple_validated_sources_snapshot(
     root = Path(first).parent
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=root, validator=list_validator)
+        load_config(path=root, validator=list_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -127,7 +127,7 @@ def test_pydantic_validation_error_snapshot(
     )
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=pydantic_validator)
+        load_config(path=path, validator=pydantic_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -141,10 +141,10 @@ def test_yaml_missing_dependency_snapshot(
     """Snapshot missing dependency message when YAML loader unavailable."""
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text("host: db\nport: 5432\n")
-    monkeypatch.setattr("fig_jam.parsers._parsers.yaml", None)
+    monkeypatch.setattr("fig_jam._parsers.registry.yaml", None)
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=yaml_path, validator=list_validator)
+        load_config(path=yaml_path, validator=list_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -157,7 +157,7 @@ def test_no_sources_snapshot(
     empty_dir.mkdir()
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=empty_dir)
+        load_config(path=empty_dir)
 
     assert_snapshot(str(excinfo.value))
 
@@ -169,7 +169,7 @@ def test_path_not_found_snapshot(
     missing = tmp_path / "missing.json"
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=missing)
+        load_config(path=missing)
 
     assert_snapshot(str(excinfo.value))
 
@@ -182,7 +182,7 @@ def test_unsupported_format_snapshot(
     path.write_text("data")
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path)
+        load_config(path=path)
 
     assert_snapshot(str(excinfo.value))
 
@@ -195,7 +195,7 @@ def test_invalid_validator_type_snapshot(
     path.write_text('{"key": "value"}')
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=42)
+        load_config(path=path, validator=42)
 
     assert_snapshot(str(excinfo.value))
 
@@ -209,7 +209,7 @@ def test_invalid_env_override_snapshot(assert_snapshot: Callable[[str], None]) -
         __env_overrides__: ClassVar[dict[str, str]] = {"missing": "ENV_VAR"}  # type: ignore[var-annotated]
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(validator=InvalidOverride)
+        load_config(validator=InvalidOverride)
 
     assert_snapshot(str(excinfo.value))
 
@@ -223,7 +223,7 @@ def test_invalid_strict_snapshot(
     path = write_json_config("config.json", {"host": "db", "port": "abc"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dict_validator, strict=False)
+        load_config(path=path, validator=dict_validator, strict=False)
 
     assert_snapshot(str(excinfo.value))
 
@@ -236,7 +236,7 @@ def test_syntax_error_snapshot(
     path.write_text('{"host": "db",}')
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path)
+        load_config(path=path)
 
     assert_snapshot(str(excinfo.value))
 
@@ -249,7 +249,7 @@ def test_not_mapping_snapshot(
     path.write_text('["a", "b"]')
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path)
+        load_config(path=path)
 
     assert_snapshot(str(excinfo.value))
 
@@ -263,7 +263,7 @@ def test_validation_type_coercion_snapshot(
     path = write_json_config("config.json", {"host": "db", "port": "not-an-int"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dict_validator)
+        load_config(path=path, validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -277,7 +277,7 @@ def test_dataclass_missing_required_snapshot(
     path = write_json_config("config.json", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dataclass_validator)
+        load_config(path=path, validator=dataclass_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -291,7 +291,7 @@ def test_list_missing_keys_snapshot(
     path = write_json_config("config.json", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=list_validator)
+        load_config(path=path, validator=list_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -305,7 +305,7 @@ def test_template_yaml_format(
     path = write_yaml_config("config.yaml", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dict_validator)
+        load_config(path=path, validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -324,7 +324,7 @@ def test_template_toml_format(
     path = write_toml_config("config.toml", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, validator=dict_validator)
+        load_config(path=path, validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -338,7 +338,7 @@ def test_template_ini_format(
     path = write_ini_config("config.ini", {"host": "db"})
 
     with pytest.raises(ConfigError) as excinfo:
-        get_config(path=path, section="DEFAULT", validator=dict_validator)
+        load_config(path=path, section="DEFAULT", validator=dict_validator)
 
     assert_snapshot(str(excinfo.value))
 
@@ -350,7 +350,7 @@ def test_yaml_success(
     """Load YAML config successfully."""
     path = write_yaml_config("config.yaml", {"host": "db", "port": 5432})
 
-    result = get_config(path=path, validator=dict_validator)
+    result = load_config(path=path, validator=dict_validator)
 
     assert result == {"host": "db", "port": 5432}
 
@@ -367,7 +367,7 @@ def test_toml_success(
         pytest.skip("TOML support not available")
     path = write_toml_config("config.toml", {"host": "db", "port": 5432})
 
-    result = get_config(path=path, validator=dict_validator)
+    result = load_config(path=path, validator=dict_validator)
 
     assert result == {"host": "db", "port": 5432}
 
@@ -378,7 +378,7 @@ def test_ini_success(
     """Load INI config successfully."""
     path = write_ini_config("config.ini", {"host": "db", "port": 5432})
 
-    result = get_config(path=path, section="DEFAULT")
+    result = load_config(path=path, section="DEFAULT")
 
     assert result == {"host": "db", "port": "5432"}
 
@@ -394,7 +394,7 @@ def test_directory_with_multiple_formats(
     toml_path.write_text('host = "db-toml"\nport = 2222')
 
     with pytest.raises(ConfigError):
-        get_config(path=tmp_path, validator=list_validator)
+        load_config(path=tmp_path, validator=list_validator)
 
 
 def test_file_access_error_snapshot(
@@ -408,7 +408,7 @@ def test_file_access_error_snapshot(
 
     try:
         with pytest.raises(ConfigError) as excinfo:
-            get_config(path=path)
+            load_config(path=path)
     finally:
         path.chmod(0o644)
 

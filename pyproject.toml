@@ -1,6 +1,6 @@
 [project]
 name = "fig-jam"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agnostic config parser and validator for Python applications."
 readme = "README.md"
 license = "MIT"

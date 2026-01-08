@@ -12,9 +12,9 @@ project settings with minimal boilerplate.
 ## Quick start
 
 ```python
-from fig_jam import get_config
+from fig_jam import load_config
 
-config = get_config(
+config = load_config(
     path="./config.yaml",                  # file or directory; defaults to ~
     section="database",                    # optional top-level key to extract
     validator={"host": str, "port": int},  # or list[str], dataclass, Pydantic
@@ -23,7 +23,7 @@ config = get_config(
 print(config)                              # {"host": "127.0.0.1", "port": 8050}
 ```
 
-`get_config` returns validated data when exactly one candidate succeeds, otherwise
+`load_config` returns validated data when exactly one candidate succeeds, otherwise
 raises `ConfigError` with actionable guidance and a suggested config template.
 
 ## What it does
