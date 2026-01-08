@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fig_jam._pipeline import ConfigBatch
+from fig_jam._pipeline._model import ConfigBatch
 
 
 class ConfigError(Exception):

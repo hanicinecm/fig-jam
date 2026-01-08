@@ -17,7 +17,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from fig_jam._parsers import iter_supported_suffixes
+from fig_jam._parsers.registry import iter_supported_suffixes
 from fig_jam._validators.introspection import (
     collect_env_override_paths,
     is_list_validator,

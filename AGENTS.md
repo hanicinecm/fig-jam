@@ -17,6 +17,7 @@
 - The only public API is the top-level `fig_jam` namespace (`get_config`, `ConfigError`).
 - Internal packages must be prefixed with `_` (e.g., `fig_jam._loader`, `fig_jam._parsers`, `fig_jam._pipeline`).
 - Within private packages, keep primary modules readable (no extra underscore) and reserve `_`-prefixed modules for helpers (e.g., `fig_jam._parsers._utils`, `fig_jam._pipeline._model`).
+- Keep private package `__init__.py` files empty (docstring only); import from modules directly.
 
 ## Toolbelt
 

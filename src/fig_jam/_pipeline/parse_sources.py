@@ -8,13 +8,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from fig_jam._parsers import get_parser
 from fig_jam._parsers.errors import (
     ParserDecodingError,
     ParserDependencyError,
     ParserSyntaxError,
     ParserTypeError,
 )
+from fig_jam._parsers.registry import get_parser
 from fig_jam._pipeline._model import ConfigBatch, ConfigSource, PipelineStage
 from fig_jam._pipeline.discover_sources import DiscoveryStatus
 

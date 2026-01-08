@@ -8,14 +8,11 @@ from typing import Any
 
 from fig_jam._loader._exceptions import ConfigError
 from fig_jam._loader._messages import render_error
-from fig_jam._pipeline import (
-    ConfigBatch,
-    ValidationStatus,
-    discover,
-    override,
-    parse,
-    validate,
-)
+from fig_jam._pipeline._model import ConfigBatch
+from fig_jam._pipeline.discover_sources import discover
+from fig_jam._pipeline.override_sources import override
+from fig_jam._pipeline.parse_sources import parse
+from fig_jam._pipeline.validate_sources import ValidationStatus, validate
 
 
 def load_config(

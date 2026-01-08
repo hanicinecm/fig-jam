@@ -7,8 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fig_jam._parsers import get_parser, iter_supported_suffixes
-from fig_jam._parsers import registry as parsers_module
+import fig_jam._parsers.registry as parsers_module
 from fig_jam._parsers.errors import (
     ParserDependencyError,
     ParserSyntaxError,
@@ -19,6 +18,8 @@ from fig_jam._parsers.registry import (
     _parse_json,
     _parse_toml,
     _parse_yaml,
+    get_parser,
+    iter_supported_suffixes,
     register_parser,
 )
 

@@ -5,17 +5,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from fig_jam._parsers import iter_supported_suffixes
-from fig_jam._pipeline import (
+from fig_jam._parsers.registry import iter_supported_suffixes
+from fig_jam._pipeline._model import (
     BatchErrorCode,
     ConfigBatch,
     ConfigSource,
-    DiscoveryStatus,
-    OverridesStatus,
-    ParsingStatus,
     PipelineStage,
-    ValidationStatus,
 )
+from fig_jam._pipeline.discover_sources import DiscoveryStatus
+from fig_jam._pipeline.override_sources import OverridesStatus
+from fig_jam._pipeline.parse_sources import ParsingStatus
+from fig_jam._pipeline.validate_sources import ValidationStatus
 from fig_jam._validators.templates import render_template
 
 StageRenderer = Callable[[ConfigSource, ConfigBatch, bool], str]
