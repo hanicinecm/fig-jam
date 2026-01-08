@@ -1,11 +1,10 @@
-# `fig-jam`
+# Fig-Jam
 
 [![CI status](https://github.com/hanicinecm/fig-jam/actions/workflows/ci.yaml/badge.svg)](https://github.com/hanicinecm/fig-jam/actions/workflows/ci.yaml)
-[![codecov](https://codecov.io/github/hanicinecm/fig-jam/graph/badge.svg?token=542NGCYIDW)](https://codecov.io/github/hanicinecm/fig-jam)
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/fig-jam.svg)
-[![PyPI](https://img.shields.io/pypi/v/fig-jam.svg)](https://pypi.org/project/fig-jam/)
-[![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/format.json)](https://github.com/astral-sh/ruff)
-![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+[![Coverage](https://codecov.io/github/hanicinecm/fig-jam/graph/badge.svg?token=542NGCYIDW)](https://codecov.io/github/hanicinecm/fig-jam)
+[![Python versions](https://img.shields.io/pypi/pyversions/fig-jam.svg)](https://pypi.python.org/pypi/fig-jam)
+[![Latest PyPI version](https://img.shields.io/pypi/v/fig-jam.svg)](https://pypi.python.org/pypi/fig-jam)
+[![License](https://img.shields.io/pypi/l/fig-jam.svg)](https://pypi.python.org/pypi/fig-jam)
 
 Single-call configuration loader that discovers, parses, validates, and documents
 project settings with minimal boilerplate.
